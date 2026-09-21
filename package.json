@@ -1,0 +1,24 @@
+{
+  "name": "immich-clone",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GNU Affero General Public License version 3",
+  "packageManager": "pnpm@11.18.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter \"./server\" --filter \"./web\" run dev",
+    "dev:server": "pnpm --filter server run dev",
+    "dev:web": "pnpm --filter web run dev",
+    "build": "pnpm --filter server run build && pnpm --filter web run build",
+    "check": "pnpm -r run check",
+    "lint": "pnpm -r run lint",
+    "format": "pnpm -r run format",
+    "format:fix": "pnpm -r run format:fix",
+    "migrations:run": "pnpm --filter server run migrations:run",
+    "migrations:rollback": "pnpm --filter server run migrations:rollback",
+    "schema:reset": "pnpm --filter server run schema:reset",
+    "cli": "pnpm --filter @immich/cli run start"
+  }
+}

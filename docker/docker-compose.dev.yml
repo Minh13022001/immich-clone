@@ -1,0 +1,106 @@
+# Development stack: web + server + database.
+#
+# Decision: three services, no more.
+# Reason: the reference compose file also runs Redis, a machine-learning
+# container, an init container and optional Prometheus/Grafana. None of those
+# are needed for CRUD, so they are omitted rather than carried along "just in
+# case". Adding Redis later is a five-line change.
+# Trade-off: no shared init container, so each app installs its own deps on
+# first boot. That is slower once, then cached in named volumes.
+#
+# Usage:
+#   cd docker && docker compose -f docker-compose.dev.yml up
+#
+# The apps run on the host (pnpm dev) by default; this file is for running the
+# whole stack in containers. Both paths are supported.
+
+name: immich-clone-dev
+
+services:
+  database:
+    container_name: immich_clone_postgres
+    # Plain Postgres. The reference uses a VectorChord/pgvector build for
+    # embedding search; we have no embeddings, so the official image is enough.
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_DATABASE_NAME:-immich}
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    ports:
+      # Host port is overridable because a Postgres may already own 5432 — a real
+      # Immich install, or a database started outside this compose project. When
+      # you change it, pair the change with `DB_PORT` on the host-run server.
+      - "${DB_HOST_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${DB_USERNAME:-postgres} -d ${DB_DATABASE_NAME:-immich}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  server:
+    container_name: immich_clone_server
+    build:
+      context: ..
+      dockerfile: docker/server.Dockerfile
+      target: dev
+    # Migrations first, then the watcher: the API must never serve a request
+    # against a schema that has not been created yet.
+    command: sh -c "pnpm --filter server run migrations:run && pnpm --filter server run dev"
+    environment:
+      NODE_ENV: development
+      PORT: 2283
+      # `database` is the compose service name, resolvable on the compose network.
+      DB_HOST: database
+      DB_PORT: 5432
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_DATABASE_NAME: ${DB_DATABASE_NAME:-immich}
+      CORS_ORIGINS: http://localhost:3000
+    ports:
+      # Overridable for the same reason as above: a real Immich server often
+      # owns 2283 on a developer machine.
+      - "${SERVER_HOST_PORT:-2283}:2283"
+    volumes:
+      # Bind-mount the repo so edits hot-reload, but keep node_modules inside
+      # the container so host and container architectures never clash.
+      - ..:/usr/src/app
+      - server_node_modules:/usr/src/app/server/node_modules
+      - root_node_modules:/usr/src/app/node_modules
+    depends_on:
+      database:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    container_name: immich_clone_web
+    build:
+      context: ..
+      dockerfile: docker/web.Dockerfile
+      target: dev
+    command: pnpm --filter web run dev
+    environment:
+      # The Vite dev server proxies /api to this target from inside the network.
+      VITE_API_PROXY: http://server:2283
+    ports:
+      - "${WEB_HOST_PORT:-3000}:3000"
+    volumes:
+      - ..:/usr/src/app
+      - web_node_modules:/usr/src/app/web/node_modules
+      - root_node_modules:/usr/src/app/node_modules
+    depends_on:
+      - server
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  server_node_modules:
+  web_node_modules:
+  root_node_modules:

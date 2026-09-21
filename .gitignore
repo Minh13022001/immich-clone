@@ -1,0 +1,21 @@
+node_modules/
+dist/
+build/
+coverage/
+.pnpm-store/
+.svelte-kit/
+
+# Local env files. Only .env.example is committed.
+.env
+.env.*
+!.env.example
+
+# Docker dev data (postgres volume lives under docker/)
+docker/data/
+
+# Editor / OS noise
+.DS_Store
+*.log
+.vscode/*
+!.vscode/extensions.json
+.idea/

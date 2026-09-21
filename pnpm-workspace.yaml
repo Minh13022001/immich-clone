@@ -1,0 +1,21 @@
+# Workspace packages.
+# `packages/*` holds the shared client libraries (@immich/sdk) and the CLI, the
+# same split the reference project uses: apps in server/ and web/, reusable code
+# in packages/. docs/, e2e/, i18n/, plugins/ and .github/ from the reference are
+# deliberately absent — they would be dead configuration here.
+packages:
+  - server
+  - web
+  - packages/*
+
+# Native modules that must run their install/build scripts.
+# pnpm blocks build scripts by default, so anything with a native binary has to
+# be opted in explicitly.
+allowBuilds:
+  esbuild: true
+  sharp: true
+
+# The reference pins sharp to ^0.35.3 at the workspace level. We keep the same
+# pin so every package resolves one version.
+overrides:
+  sharp: ^0.35.3

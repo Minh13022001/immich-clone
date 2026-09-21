@@ -1,0 +1,49 @@
+# Toolchain + task definitions (https://mise.jdx.dev).
+#
+# The reference project uses mise so a contributor gets the right Node and pnpm
+# with one command (`mise install`) instead of reading the README. Tasks mirror
+# the root package.json scripts so both entry points behave identically.
+
+[tools]
+node = "24"
+pnpm = "11.18.0"
+
+[monorepo]
+# Where mise should look for nested config files, in addition to this root.
+config_roots = ["server", "web", "packages/sdk", "packages/cli"]
+
+[tasks.dev]
+description = "Run the API and the web app together"
+run = "pnpm dev"
+
+[tasks.build]
+description = "Build the server and the web app"
+run = "pnpm build"
+
+[tasks.check]
+description = "Typecheck every workspace package"
+run = "pnpm check"
+
+[tasks.lint]
+description = "Lint every workspace package"
+run = "pnpm lint"
+
+[tasks.format]
+description = "Verify formatting"
+run = "pnpm format"
+
+[tasks."format:fix"]
+description = "Rewrite files that are not formatted"
+run = "pnpm format:fix"
+
+[tasks."migrations:run"]
+description = "Apply pending database migrations"
+run = "pnpm migrations:run"
+
+[tasks."schema:reset"]
+description = "Drop everything and re-apply all migrations (destructive)"
+run = "pnpm schema:reset"
+
+[tasks.cli]
+description = "Run the CLI, e.g. `mise run cli -- server-info`"
+run = "pnpm cli"
