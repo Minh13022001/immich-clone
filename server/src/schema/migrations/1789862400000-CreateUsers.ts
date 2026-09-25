@@ -10,7 +10,7 @@ import type { DB } from '../index';
  * listing used by the API. `email` carries a unique constraint so identity is
  * enforced by the database rather than by a check-then-insert race.
  */
-export async function up(db: Kysely<DB>): Promise<void> {
+export async function up(db: Kysely<DB>): Promise<void> {   // how this releated to the createUser ?
   await db.schema
     .createTable('users')
     .addColumn('id', 'uuid', (column) => column.primaryKey().defaultTo(sql`gen_random_uuid()`))
