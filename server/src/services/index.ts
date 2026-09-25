@@ -1,5 +1,5 @@
-import { PhotoService } from './photo.service';
 import { ServerInfoService } from './server-info.service';
+import { UserService } from './user.service';
 
 /**
  * Provider registry, spread into `providers` by `app.module.ts`.
@@ -7,4 +7,4 @@ import { ServerInfoService } from './server-info.service';
  * `BaseService` is intentionally absent: it is an abstract-ish helper, not an
  * injectable, so it is extended rather than provided.
  */
-export const services = [PhotoService, ServerInfoService];
+export const services = [UserService, ServerInfoService];

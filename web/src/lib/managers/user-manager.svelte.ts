@@ -1,19 +1,19 @@
-import { addPhoto, listPhotos, removePhoto, renamePhoto } from '$lib/services/photos.service';
-import { photosStore } from '$lib/stores/photos.store.svelte';
+import { addUser, listUsers, removeUser, saveUser } from '$lib/services/users.service';
+import { usersStore } from '$lib/stores/users.store.svelte';
 import { describeError } from '$lib/utils';
 
 /**
- * The only place that mutates the photo store.
+ * The only place that mutates the user store.
  *
- * Components read `photoManager.photos` and call the verbs below; the manager
+ * Components read `userManager.users` and call the verbs below; the manager
  * decides what happens on success or failure. Errors become a message on the
  * store instead of exceptions, so no component needs a try/catch.
  */
-class PhotoManager {
-  readonly #store = photosStore;
+class UserManager {
+  readonly #store = usersStore;
 
-  get photos() {
-    return this.#store.photos;
+  get users() {
+    return this.#store.users;
   }
 
   get loading() {
@@ -29,7 +29,7 @@ class PhotoManager {
     this.#store.error = null;
 
     try {
-      this.#store.set(await listPhotos());
+      this.#store.set(await listUsers());
     } catch (error) {
       this.#store.error = describeError(error);
     } finally {
@@ -37,12 +37,12 @@ class PhotoManager {
     }
   }
 
-  /** Returns `true` when the photo was created, so forms can clear themselves. */
-  async create(name: string): Promise<boolean> {
+  /** Returns `true` when the user was created, so forms can clear themselves. */
+  async create(name: string, email: string): Promise<boolean> {
     this.#store.error = null;
 
     try {
-      this.#store.prepend(await addPhoto(name));
+      this.#store.prepend(await addUser(name, email));
 
       return true;
     } catch (error) {
@@ -52,11 +52,12 @@ class PhotoManager {
     }
   }
 
-  async rename(id: string, name: string): Promise<boolean> {
+  /** Returns `true` when the user was saved, so rows can leave edit mode. */
+  async update(id: string, name: string, email: string): Promise<boolean> {
     this.#store.error = null;
 
     try {
-      this.#store.replace(await renamePhoto(id, name));
+      this.#store.replace(await saveUser(id, name, email));
 
       return true;
     } catch (error) {
@@ -70,7 +71,7 @@ class PhotoManager {
     this.#store.error = null;
 
     try {
-      await removePhoto(id);
+      await removeUser(id);
       this.#store.remove(id);
     } catch (error) {
       this.#store.error = describeError(error);
@@ -78,4 +79,4 @@ class PhotoManager {
   }
 }
 
-export const photoManager = new PhotoManager();
+export const userManager = new UserManager();

@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 
-import { registerPhotosCommands } from './commands/photos';
 import { registerServerInfoCommand } from './commands/server-info';
+import { registerUsersCommands } from './commands/users';
 
 /**
  * CLI entry point: one program, one command group per resource.
@@ -17,11 +17,11 @@ const program = new Command()
   .option('-u, --url <url>', 'base URL of the API (default: http://localhost:2283/api)');
 
 registerServerInfoCommand(program);
-registerPhotosCommands(program);
+registerUsersCommands(program);
 
 /**
  * Drops a lone `--` that package managers insert between the script name and
- * the user's arguments (`pnpm run cli -- photos list`). Commander treats it as
+ * the user's arguments (`pnpm run cli -- users list`). Commander treats it as
  * "end of options", so any flag after it would silently be ignored.
  */
 function withoutSeparator(argv: string[]): string[] {

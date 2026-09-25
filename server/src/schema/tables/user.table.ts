@@ -8,10 +8,11 @@ import type { ColumnType, Generated } from 'kysely';
  */
 type Timestamp = ColumnType<Date, Date | string | undefined, Date | string>;
 
-/** Shape of the `photos` table. */
-export interface PhotoTable {
+/** Shape of the `users` table. */
+export interface UserTable {
   id: Generated<string>;
   name: string;
+  email: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

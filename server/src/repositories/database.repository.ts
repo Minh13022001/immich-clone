@@ -20,6 +20,7 @@ export class DatabaseRepository implements OnApplicationShutdown {
   readonly db: Kysely<DB>;
 
   constructor(config: ConfigService<Env, true>) {
+    console.log('[BOOT] DatabaseRepository creating the Kysely/pg pool');
     this.db = createDatabase<DB>(readEnv(config));
   }
 

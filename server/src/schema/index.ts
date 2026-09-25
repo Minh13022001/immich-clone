@@ -1,7 +1,7 @@
 import type { Insertable, Selectable, Updateable } from 'kysely';
 
-import type { PhotoTable } from './tables/photo.table';
 import type { SchemaMigrationsTable } from './tables/schema-migrations.table';
+import type { UserTable } from './tables/user.table';
 
 /**
  * The database schema as Kysely sees it: one property per table, named exactly
@@ -9,13 +9,13 @@ import type { SchemaMigrationsTable } from './tables/schema-migrations.table';
  * so adding a table is a two-step change (table file + this interface).
  */
 export interface DB {
-  photos: PhotoTable;
+  users: UserTable;
   schema_migrations: SchemaMigrationsTable;
 }
 
 /** What a `select` returns. */
-export type PhotoRow = Selectable<PhotoTable>;
+export type UserRow = Selectable<UserTable>;
 /** What an `insert` accepts. */
-export type NewPhotoRow = Insertable<PhotoTable>;
+export type NewUserRow = Insertable<UserTable>;
 /** What an `update` accepts. */
-export type PhotoUpdateRow = Updateable<PhotoTable>;
+export type UserUpdateRow = Updateable<UserTable>;

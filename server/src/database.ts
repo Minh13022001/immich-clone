@@ -7,9 +7,10 @@
  * and controllers never see database-only concepts such as `Generated<T>`.
  */
 
-export interface Photo {
+export interface User {
   id: string;
   name: string;
+  email: string;
   createdAt: Date;
   updatedAt: Date;
 }

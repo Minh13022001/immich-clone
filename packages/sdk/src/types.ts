@@ -5,9 +5,10 @@
  * arrive as ISO strings over HTTP, so the SDK does not pretend they are `Date`.
  */
 
-export interface Photo {
+export interface User {
   id: string;
   name: string;
+  email: string;
   createdAt: string;
   updatedAt: string;
 }

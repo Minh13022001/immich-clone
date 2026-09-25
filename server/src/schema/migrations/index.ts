@@ -1,7 +1,7 @@
 import type { Kysely } from 'kysely';
 
 import type { DB } from '../index';
-import * as CreatePhotos from './1789862400000-CreatePhotos';
+import * as CreateUsers from './1789862400000-CreateUsers';
 
 /**
  * A single migration. `name` is what gets recorded in `schema_migrations` and
@@ -19,8 +19,8 @@ export interface Migration {
  */
 export const migrations: Migration[] = [
   {
-    name: '1789862400000-CreatePhotos',
-    up: CreatePhotos.up,
-    down: CreatePhotos.down,
+    name: '1789862400000-CreateUsers',
+    up: CreateUsers.up,
+    down: CreateUsers.down,
   },
 ];

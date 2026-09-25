@@ -1,4 +1,4 @@
-import { photoManager } from '$lib/managers/photo-manager.svelte';
+import { userManager } from '$lib/managers/user-manager.svelte';
 
 /**
  * Runs in the browser because `ssr` is disabled in the layout.
@@ -8,5 +8,5 @@ import { photoManager } from '$lib/managers/photo-manager.svelte';
  * than being thrown, which is why this never sends the user to an error page.
  */
 export async function load(): Promise<void> {
-  await photoManager.load();
+  await userManager.load();
 }

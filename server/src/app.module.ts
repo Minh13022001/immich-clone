@@ -17,18 +17,17 @@ import { validateEnv } from './validation';
  */
 const common = [...repositories, ...services];
 
+// this is configuring what inside an AppModule
 @Module({
-  imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      validate: validateEnv,
+  imports: [ //Other NestJS modules that this module depends on. (importing ConfigModule)
+    ConfigModule.forRoot({ // Init the config system. It read your .env variables
+      isGlobal: true,      // Allows ConfigModule to be used in every other module without re-importing
+      validate: validateEnv, // Pass the env variables to the validateEnv function.
     }),
   ],
   controllers,
   providers: [
     ...common,
-    // Registered by token so every request — not just the ones that opt in via
-    // `@UseFilters` — goes through the same error shaping.
     { provide: APP_FILTER, useClass: GlobalExceptionFilter },
   ],
 })

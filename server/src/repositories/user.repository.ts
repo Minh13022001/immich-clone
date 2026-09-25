@@ -1,46 +1,48 @@
 import { Injectable } from '@nestjs/common';
 
-import type { NewPhotoRow, PhotoRow, PhotoUpdateRow } from '../schema';
+import type { NewUserRow, UserRow, UserUpdateRow } from '../schema';
 import { DatabaseRepository } from './database.repository';
 
 /**
- * The only SQL for photos.
+ * The only SQL for users.
  *
  * Repositories own queries and return rows; they never decide HTTP semantics.
- * That separation is why a "not found" here is `undefined` rather than a 404.
+ * That separation is why a "not found" here is `undefined` rather than a 404,
+ * and why a unique-email violation bubbles up as a driver error the service
+ * translates.
  */
 @Injectable()
-export class PhotoRepository {
+export class UserRepository {
   constructor(private readonly databaseRepository: DatabaseRepository) {}
 
-  create(values: NewPhotoRow): Promise<PhotoRow> {
+  create(values: NewUserRow): Promise<UserRow> {
     return this.databaseRepository.db
-      .insertInto('photos')
+      .insertInto('users')
       .values(values)
       .returningAll()
       .executeTakeFirstOrThrow();
   }
 
-  getById(id: string): Promise<PhotoRow | undefined> {
+  getById(id: string): Promise<UserRow | undefined> {
     return this.databaseRepository.db
-      .selectFrom('photos')
+      .selectFrom('users')
       .selectAll()
       .where('id', '=', id)
       .executeTakeFirst();
   }
 
-  /** Newest first, matching what a gallery view expects. */
-  getAll(): Promise<PhotoRow[]> {
+  /** Newest first, matching what a management table expects. */
+  getAll(): Promise<UserRow[]> {
     return this.databaseRepository.db
-      .selectFrom('photos')
+      .selectFrom('users')
       .selectAll()
       .orderBy('createdAt', 'desc')
       .execute();
   }
 
-  update(id: string, values: PhotoUpdateRow): Promise<PhotoRow | undefined> {
+  update(id: string, values: UserUpdateRow): Promise<UserRow | undefined> {
     return this.databaseRepository.db
-      .updateTable('photos')
+      .updateTable('users')
       .set(values)
       .where('id', '=', id)
       .returningAll()
@@ -50,7 +52,7 @@ export class PhotoRepository {
   /** Returns whether a row was actually removed, so the service can 404. */
   async delete(id: string): Promise<boolean> {
     const result = await this.databaseRepository.db
-      .deleteFrom('photos')
+      .deleteFrom('users')
       .where('id', '=', id)
       .executeTakeFirst();
 

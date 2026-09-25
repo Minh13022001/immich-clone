@@ -47,7 +47,7 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     );
   }
 
-  // 204 No Content (photo deletion) has no JSON to decode.
+  // 204 No Content (resource deletion) has no JSON to decode.
   if (response.status === 204) {
     return undefined as T;
   }

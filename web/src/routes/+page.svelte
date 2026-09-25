@@ -1,33 +1,33 @@
 <script lang="ts">
-  import PhotoForm from '$lib/components/photo-form.svelte';
-  import PhotoList from '$lib/components/photo-list.svelte';
-  import { photoManager } from '$lib/managers/photo-manager.svelte';
+  import UserForm from '$lib/components/user-form.svelte';
+  import UserTable from '$lib/components/user-table.svelte';
+  import { userManager } from '$lib/managers/user-manager.svelte';
 </script>
 
 <section>
-  <h2>Photos</h2>
+  <h2>Users</h2>
 
-  <PhotoForm onSubmit={(name) => photoManager.create(name)} />
+  <UserForm onSubmit={(name, email) => userManager.create(name, email)} />
 
-  {#if photoManager.error}
-    <p class="error" role="alert">{photoManager.error}</p>
+  {#if userManager.error}
+    <p class="error" role="alert">{userManager.error}</p>
   {/if}
 
   <div class="toolbar">
     <button
       type="button"
       class="secondary"
-      onclick={() => void photoManager.load()}
-      disabled={photoManager.loading}
+      onclick={() => void userManager.load()}
+      disabled={userManager.loading}
     >
-      {photoManager.loading ? 'Refreshing…' : 'Refresh'}
+      {userManager.loading ? 'Refreshing…' : 'Refresh'}
     </button>
   </div>
 
-  <PhotoList
-    photos={photoManager.photos}
-    onRename={(id, name) => photoManager.rename(id, name)}
-    onDelete={(id) => photoManager.remove(id)}
+  <UserTable
+    users={userManager.users}
+    onUpdate={(id, name, email) => userManager.update(id, name, email)}
+    onDelete={(id) => userManager.remove(id)}
   />
 </section>
 

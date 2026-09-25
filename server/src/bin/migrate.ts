@@ -72,7 +72,7 @@ export async function down(db: Kysely<DB>): Promise<void> {
 
 export async function reset(db: Kysely<DB>): Promise<void> {
   logger.warn('Dropping all tables and re-applying every migration');
-  await db.schema.dropTable('photos').ifExists().cascade().execute();
+  await db.schema.dropTable('users').ifExists().cascade().execute();
   await db.schema.dropTable('schema_migrations').ifExists().cascade().execute();
   await up(db);
 }

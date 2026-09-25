@@ -3,27 +3,34 @@ import 'reflect-metadata';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import type { NextFunction, Request, Response } from 'express';
 
 import { AppModule } from './app.module';
 import { API_PREFIX } from './constants';
 import { parseCorsOrigins } from './utils/config';
 import type { Env } from './validation';
 
+
+// this define the function that start the server.
+// starting server is async cause it need create app, config app,
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { bufferLogs: false });
-  const config = app.get(ConfigService<Env, true>);
+  const app = await NestFactory.create(AppModule, { bufferLogs: false }); // Create my application using AppModule.
+  const config = app.get(ConfigService<Env, true>); // Get the ConfigService service.
 
-  // All routes live under /api so the web app, the SDK and the CLI share one
-  // stable, unambiguous prefix that a reverse proxy can route on later.
-  app.setGlobalPrefix(API_PREFIX);
+  app.setGlobalPrefix(API_PREFIX); // Set the global prefix for all routes.
 
-  app.useGlobalPipes(
+  // Step 1 of every request: middleware. Runs BEFORE routing and validation,
+  // for all paths, including 404s.
+  app.use((req: Request, _res: Response, next: NextFunction) => {
+    console.log(`[REQ 1] middleware saw ${req.method} ${req.originalUrl}`);
+    next();
+  });
+
+  app.useGlobalPipes( // Validates incoming request data using my DTOs.
     new ValidationPipe({
-      // Strip properties that are not in the DTO. Prevents clients from
-      // injecting fields like `id` or `createdAt` into an update.
+
       whitelist: true,
-      // Reject unknown properties instead of silently dropping them, so typos
-      // in a client payload surface as a 400 rather than a silent no-op.
+
       forbidNonWhitelisted: true,
       transform: true,
     }),
@@ -34,14 +41,14 @@ async function bootstrap(): Promise<void> {
     credentials: true,
   });
 
-  // Required for `DatabaseRepository.onApplicationShutdown` to run, so the pg
-  // pool is drained on SIGTERM instead of leaving connections behind.
   app.enableShutdownHooks();
 
   const port = config.get('PORT', { infer: true });
   await app.listen(port, '0.0.0.0');
+  // my laptop can have many network interface (wifi: 10.10.10.80, ethernet: 192.168.1.20, ...), so if 0.0.0.0, it will listen on all of them
+  // But if we set 10.10.10.80, then it will only listen on that interface,
 
   Logger.log(`API listening on http://localhost:${port}/${API_PREFIX}`, 'Bootstrap');
 }
 
-void bootstrap();
+void bootstrap(); //void means “I intentionally don't use/care about that returned Promise.”

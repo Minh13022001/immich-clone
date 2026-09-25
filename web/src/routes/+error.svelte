@@ -6,7 +6,7 @@
 <section class="error-page">
   <h2>{page.status}</h2>
   <p class="muted">{page.error?.message ?? 'Something went wrong.'}</p>
-  <a href={resolve('/')}>Back to photos</a>
+  <a href={resolve('/')}>Back to users</a>
 </section>
 
 <style>

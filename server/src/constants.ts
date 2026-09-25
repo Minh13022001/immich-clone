@@ -16,8 +16,11 @@ export const DEFAULT_PORT = 2283;
 /** Default browser origin allowed by CORS during local development. */
 export const DEFAULT_CORS_ORIGINS = 'http://localhost:3000';
 
-/** Maximum number of characters allowed in a photo name. */
-export const PHOTO_NAME_MAX_LENGTH = 255;
+/** Maximum number of characters allowed in a user name. */
+export const USER_NAME_MAX_LENGTH = 255;
+
+/** Maximum number of characters allowed in a user email address. */
+export const USER_EMAIL_MAX_LENGTH = 320;
 
 /** Connection pool ceiling for the API process. */
 export const DATABASE_POOL_SIZE = 10;
