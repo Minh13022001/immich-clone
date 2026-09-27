@@ -19,6 +19,8 @@
   let emailDraft = $state('');
   let busy = $state(false);
 
+  const CELL = 'border-b border-border px-2 py-2.5';
+
   function startEditing(): void {
     nameDraft = user.name;
     emailDraft = user.email;
@@ -59,33 +61,44 @@
 
 <tr>
   {#if editing}
-    <td colspan="4">
-      <form class="editor" onsubmit={save}>
+    <td colspan="4" class={CELL}>
+      <form class="flex gap-2" onsubmit={save}>
         <input
           type="text"
+          class="input"
           bind:value={nameDraft}
           maxlength={USER_NAME_MAX_LENGTH}
           aria-label="User name"
         />
         <input
           type="email"
+          class="input"
           bind:value={emailDraft}
           maxlength={USER_EMAIL_MAX_LENGTH}
           aria-label="User email"
         />
-        <button type="submit" disabled={busy}>Save</button>
-        <button type="button" class="secondary" onclick={() => (editing = false)} disabled={busy}>
+        <button type="submit" class="btn" disabled={busy}>Save</button>
+        <button
+          type="button"
+          class="btn btn-secondary"
+          onclick={() => (editing = false)}
+          disabled={busy}
+        >
           Cancel
         </button>
       </form>
     </td>
   {:else}
-    <td class="name">{user.name}</td>
-    <td class="email">{user.email}</td>
-    <td class="muted">{formatTimestamp(user.updatedAt)}</td>
-    <td class="actions">
-      <button type="button" class="secondary" onclick={startEditing} disabled={busy}>Edit</button>
-      <button type="button" class="danger" onclick={handleDelete} disabled={busy}>Delete</button>
+    <td class={CELL}>{user.name}</td>
+    <td class={CELL}>{user.email}</td>
+    <td class={`${CELL} text-muted`}>{formatTimestamp(user.updatedAt)}</td>
+    <td class={`${CELL} text-right whitespace-nowrap`}>
+      <button type="button" class="btn btn-secondary" onclick={startEditing} disabled={busy}
+        >Edit</button
+      >
+      <button type="button" class="btn btn-danger ml-1.5" onclick={handleDelete} disabled={busy}>
+        Delete
+      </button>
     </td>
   {/if}
 </tr>

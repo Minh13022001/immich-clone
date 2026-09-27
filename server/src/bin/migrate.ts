@@ -1,4 +1,6 @@
 import { Logger } from '@nestjs/common';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { type Kysely, sql } from 'kysely';
 
 import { MIGRATION_DATABASE_POOL_SIZE } from '../constants';
@@ -18,6 +20,23 @@ import { validateEnv } from '../validation';
 const logger = new Logger('Migrate');
 
 type Command = 'up' | 'down' | 'reset';
+
+/**
+ * Loads `server/.env` into `process.env` before it is validated.
+ *
+ * `ConfigModule.forRoot` does this for the Nest application, but this script
+ * runs outside Nest. Without it a host-run `pnpm migrations:run` ignores the
+ * file entirely and silently falls back to the schema defaults (port 5432),
+ * connecting to the wrong database. Variables already present in the real
+ * environment win, matching the behaviour of `node --env-file`.
+ */
+function loadServerEnv(): void {
+  const envFile = resolve(__dirname, '../../.env');
+
+  if (existsSync(envFile)) {
+    process.loadEnvFile(envFile);
+  }
+}
 
 async function ensureMigrationsTable(db: Kysely<DB>): Promise<void> {
   await db.schema
@@ -79,6 +98,9 @@ export async function reset(db: Kysely<DB>): Promise<void> {
 
 async function main(): Promise<void> {
   const command = (process.argv[2] ?? 'up') as Command;
+
+  loadServerEnv();
+
   const db = createDatabase<DB>(validateEnv(process.env), MIGRATION_DATABASE_POOL_SIZE);
 
   try {

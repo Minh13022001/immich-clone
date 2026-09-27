@@ -8,12 +8,12 @@
 </script>
 
 {#if serverInfoManager.error}
-  <span class="muted" title={serverInfoManager.error}>API unreachable</span>
+  <span class="text-muted" title={serverInfoManager.error}>API unreachable</span>
 {:else if serverInfoManager.info}
-  <span class="muted">
+  <span class="text-muted">
     {serverInfoManager.info.name} v{serverInfoManager.info.version} · node {serverInfoManager.info
       .nodeVersion}
   </span>
 {:else}
-  <span class="muted">connecting…</span>
+  <span class="text-muted">connecting…</span>
 {/if}

@@ -43,7 +43,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-    restart: unless-stopped
+    # restart: unless-stopped kill the docker proxy's process. this keep the docker proxy listen even when the container stopped
 
   server:
     container_name: immich_clone_server

@@ -10,19 +10,22 @@
   }
 
   let { users, onUpdate, onDelete }: Props = $props();
+
+  const HEAD_CELL =
+    'border-b border-border px-2 py-2.5 text-left text-xs font-semibold tracking-wide text-muted uppercase';
 </script>
 
 {#if users.length === 0}
-  <p class="muted">No users yet.</p>
+  <p class="text-muted">No users yet.</p>
 {:else}
-  <div class="table-wrapper">
-    <table>
+  <div class="overflow-x-auto">
+    <table class="w-full border-collapse text-sm">
       <thead>
         <tr>
-          <th scope="col">Name</th>
-          <th scope="col">Email</th>
-          <th scope="col">Updated</th>
-          <th scope="col" class="actions-header">Actions</th>
+          <th scope="col" class={HEAD_CELL}>Name</th>
+          <th scope="col" class={HEAD_CELL}>Email</th>
+          <th scope="col" class={HEAD_CELL}>Updated</th>
+          <th scope="col" class={`${HEAD_CELL} text-right`}>Actions</th>
         </tr>
       </thead>
       <tbody>

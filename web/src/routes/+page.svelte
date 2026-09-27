@@ -1,40 +1,43 @@
 <script lang="ts">
-  import UserForm from '$lib/components/user-form.svelte';
-  import UserTable from '$lib/components/user-table.svelte';
+  import { resolve } from '$app/paths';
+
+  import { serverInfoManager } from '$lib/managers/server-info-manager.svelte';
   import { userManager } from '$lib/managers/user-manager.svelte';
+
+  const apiStatus = $derived(
+    serverInfoManager.error ? 'Unreachable' : serverInfoManager.info ? 'Online' : 'Checking…',
+  );
 </script>
 
 <section>
-  <h2>Users</h2>
-
-  <UserForm onSubmit={(name, email) => userManager.create(name, email)} />
-
-  {#if userManager.error}
-    <p class="error" role="alert">{userManager.error}</p>
-  {/if}
-
-  <div class="toolbar">
-    <button
-      type="button"
-      class="secondary"
-      onclick={() => void userManager.load()}
-      disabled={userManager.loading}
-    >
-      {userManager.loading ? 'Refreshing…' : 'Refresh'}
-    </button>
+  <div class="mb-6">
+    <h2 class="text-lg font-semibold">Welcome back</h2>
+    <p class="mt-1 text-sm text-muted">A quick look at this immich-clone instance.</p>
   </div>
 
-  <UserTable
-    users={userManager.users}
-    onUpdate={(id, name, email) => userManager.update(id, name, email)}
-    onDelete={(id) => userManager.remove(id)}
-  />
-</section>
+  {#if userManager.error}
+    <p class="mb-4 text-danger" role="alert">{userManager.error}</p>
+  {/if}
 
-<style>
-  .toolbar {
-    display: flex;
-    justify-content: flex-end;
-    margin-bottom: 0.75rem;
-  }
-</style>
+  <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <article class="rounded-xl border border-border bg-surface p-4">
+      <p class="text-xs font-semibold tracking-wide text-muted uppercase">Users</p>
+      <p class="mt-2 text-2xl font-semibold">{userManager.users.length}</p>
+      <a class="mt-3 inline-block text-sm" href={resolve('/users')}>Manage users →</a>
+    </article>
+
+    <article class="rounded-xl border border-border bg-surface p-4">
+      <p class="text-xs font-semibold tracking-wide text-muted uppercase">API status</p>
+      <p class="mt-2 text-2xl font-semibold">{apiStatus}</p>
+      <p class="mt-3 text-sm text-muted">
+        {serverInfoManager.info ? `node ${serverInfoManager.info.nodeVersion}` : 'No response yet'}
+      </p>
+    </article>
+
+    <article class="rounded-xl border border-border bg-surface p-4">
+      <p class="text-xs font-semibold tracking-wide text-muted uppercase">Version</p>
+      <p class="mt-2 text-2xl font-semibold">{serverInfoManager.info?.version ?? '—'}</p>
+      <p class="mt-3 text-sm text-muted">{serverInfoManager.info?.name ?? 'immich-clone'}</p>
+    </article>
+  </div>
+</section>

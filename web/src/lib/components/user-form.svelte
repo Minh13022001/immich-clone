@@ -45,9 +45,10 @@
   }
 </script>
 
-<form class="user-form" onsubmit={handleSubmit}>
+<form class="mb-4 flex gap-2" onsubmit={handleSubmit}>
   <input
     type="text"
+    class="input"
     bind:value={name}
     maxlength={USER_NAME_MAX_LENGTH}
     placeholder={namePlaceholder}
@@ -56,19 +57,12 @@
   />
   <input
     type="email"
+    class="input"
     bind:value={email}
     maxlength={USER_EMAIL_MAX_LENGTH}
     placeholder={emailPlaceholder}
     aria-label="User email"
     required
   />
-  <button type="submit" disabled={!canSubmit}>{submitLabel}</button>
+  <button type="submit" class="btn" disabled={!canSubmit}>{submitLabel}</button>
 </form>
-
-<style>
-  .user-form {
-    display: flex;
-    gap: 0.5rem;
-    margin-bottom: 1rem;
-  }
-</style>

@@ -3,14 +3,8 @@
   import { page } from '$app/state';
 </script>
 
-<section class="error-page">
-  <h2>{page.status}</h2>
-  <p class="muted">{page.error?.message ?? 'Something went wrong.'}</p>
-  <a href={resolve('/')}>Back to users</a>
+<section class="py-8">
+  <h2 class="text-lg font-semibold">{page.status}</h2>
+  <p class="text-muted">{page.error?.message ?? 'Something went wrong.'}</p>
+  <a href={resolve('/')}>Back to main</a>
 </section>
-
-<style>
-  .error-page {
-    padding: 2rem 0;
-  }
-</style>
