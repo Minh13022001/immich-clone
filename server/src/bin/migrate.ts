@@ -91,6 +91,12 @@ export async function down(db: Kysely<DB>): Promise<void> {
 
 export async function reset(db: Kysely<DB>): Promise<void> {
   logger.warn('Dropping all tables and re-applying every migration');
+  // Child tables first: they hold foreign keys into `asset` (and `asset` into
+  // `users`), so dropping out of order needs `cascade` on every table anyway.
+  await db.schema.dropTable('asset_metadata').ifExists().cascade().execute();
+  await db.schema.dropTable('exif').ifExists().cascade().execute();
+  await db.schema.dropTable('asset_file').ifExists().cascade().execute();
+  await db.schema.dropTable('asset').ifExists().cascade().execute();
   await db.schema.dropTable('users').ifExists().cascade().execute();
   await db.schema.dropTable('schema_migrations').ifExists().cascade().execute();
   await up(db);

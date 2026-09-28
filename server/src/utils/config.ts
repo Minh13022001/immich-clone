@@ -19,6 +19,7 @@ export function readEnv(config: ConfigService<Env, true>): Env {
     DB_PASSWORD: config.get('DB_PASSWORD', { infer: true }),
     DB_DATABASE_NAME: config.get('DB_DATABASE_NAME', { infer: true }),
     CORS_ORIGINS: config.get('CORS_ORIGINS', { infer: true }),
+    MEDIA_ROOT: config.get('MEDIA_ROOT', { infer: true }),
   };
 }
 

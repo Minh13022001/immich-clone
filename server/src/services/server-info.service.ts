@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 
 import { APP_NAME, APP_VERSION } from '../constants';
-import type { ServerInfoDto } from '../dtos/server-info.dto';
+import type { ServerInfoDto, SupportedMediaTypesDto } from '../dtos/server-info.dto';
+import { getSupportedMediaTypes as collectSupportedMediaTypes } from '../utils/mime-types';
 import { BaseService } from './base.service';
 
 /**
@@ -17,5 +18,13 @@ export class ServerInfoService extends BaseService {
       version: APP_VERSION,
       nodeVersion: process.version,
     };
+  }
+
+  /**
+   * Mime types an upload may carry (spec §8.3). Served from the same registry
+   * `canUploadFile` enforces, so the picker filter can never drift from the API.
+   */
+  getSupportedMediaTypes(): SupportedMediaTypesDto {
+    return collectSupportedMediaTypes();
   }
 }

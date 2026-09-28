@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { DEFAULT_CORS_ORIGINS, DEFAULT_PORT } from './constants';
+import { DEFAULT_CORS_ORIGINS, DEFAULT_MEDIA_ROOT, DEFAULT_PORT } from './constants';
 
 /**
  * Environment contract for the API.
@@ -20,6 +20,9 @@ const envSchema = z.object({
 
   /** Comma-separated list of allowed browser origins. */
   CORS_ORIGINS: z.string().default(DEFAULT_CORS_ORIGINS),
+
+  /** Filesystem root under which uploaded originals are stored. */
+  MEDIA_ROOT: z.string().min(1).default(DEFAULT_MEDIA_ROOT),
 });
 
 export type Env = z.infer<typeof envSchema>;

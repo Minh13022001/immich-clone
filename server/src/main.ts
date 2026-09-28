@@ -10,7 +10,6 @@ import { API_PREFIX } from './constants';
 import { parseCorsOrigins } from './utils/config';
 import type { Env } from './validation';
 
-
 // this define the function that start the server.
 // starting server is async cause it need create app, config app,
 async function bootstrap(): Promise<void> {
@@ -26,13 +25,15 @@ async function bootstrap(): Promise<void> {
     next();
   });
 
-  app.useGlobalPipes( // Validates incoming request data using my DTOs.
+  app.useGlobalPipes(
+    // Validates incoming request data using my DTOs.
     new ValidationPipe({
-
       whitelist: true,
-
       forbidNonWhitelisted: true,
-      // transform: true,
+      // `transform` is required for the multipart upload DTO: multer delivers
+      // every text field as a string, and `@Transform` only runs when the pipe
+      // materialises the DTO instance.
+      transform: true,
     }),
   );
 

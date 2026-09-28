@@ -7,6 +7,9 @@
     "dev": "nest start --watch",
     "build": "nest build",
     "start": "node dist/main.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "pnpm build && tsx test/upload.e2e.ts",
     "check": "tsc --noEmit",
     "lint": "eslint \"src/**/*.ts\" --max-warnings 0",
     "format": "prettier --cache --check .",
@@ -23,6 +26,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "kysely": "^0.28.17",
+    "multer": "^2.4.0",
     "pg": "^8.13.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
@@ -33,12 +37,16 @@
     "@nestjs/cli": "^11.0.2",
     "@nestjs/schematics": "^11.0.0",
     "@types/express": "^5.0.0",
+    "@types/multer": "^2.2.0",
     "@types/node": "^24.13.3",
     "@types/pg": "^8.11.10",
+    "@types/supertest": "^7.2.1",
     "eslint": "^9.0.0",
     "prettier": "^3.7.4",
+    "supertest": "^7.3.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
-    "typescript-eslint": "^8.28.0"
+    "typescript-eslint": "^8.28.0",
+    "vitest": "^5.0.2"
   }
 }

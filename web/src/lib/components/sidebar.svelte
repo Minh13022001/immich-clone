@@ -3,6 +3,7 @@
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
 
+  import { uploadManager } from '$lib/managers/upload-manager.svelte';
   import { NAV_ITEMS, isNavItemActive } from '$lib/navigation';
 
   /** Drives the off-canvas drawer on narrow screens; inert on desktop. */
@@ -18,6 +19,12 @@
     if (event.key === 'Escape') {
       open = false;
     }
+  }
+
+  /** Navbar entry point (spec §8.6): learn the extensions, then open the picker. */
+  async function uploadFromPicker(): Promise<void> {
+    await uploadManager.loadMediaTypes();
+    await uploadManager.pickAndUpload();
   }
 </script>
 
@@ -94,4 +101,20 @@
   </nav>
 
   <p class="mt-auto px-1.5 text-xs text-muted">v0.1.0</p>
+
+  <button type="button" class="btn w-full" onclick={() => void uploadFromPicker()}>
+    <svg
+      class="h-4 w-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 3v12m0-12-4 4m4-4 4 4M5 15v4a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-4" />
+    </svg>
+    Upload
+  </button>
 </aside>

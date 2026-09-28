@@ -1,6 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 
-import type { ServerInfoDto } from '../dtos/server-info.dto';
+import type { ServerInfoDto, SupportedMediaTypesDto } from '../dtos/server-info.dto';
 import { ServerInfoService } from '../services/server-info.service';
 
 @Controller('server-info')
@@ -16,5 +16,11 @@ export class ServerController {
     // Step 2: the router sent the request here, after validation passed.
     const result = this.serverInfoService.getServerInfo();
     return result;
+  }
+
+  /** Mime types the upload endpoint accepts; the web derives its picker filter. */
+  @Get('media-types')
+  getSupportedMediaTypes(): SupportedMediaTypesDto {
+    return this.serverInfoService.getSupportedMediaTypes();
   }
 }

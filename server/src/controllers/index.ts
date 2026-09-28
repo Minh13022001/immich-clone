@@ -1,3 +1,5 @@
+import { AssetMediaController } from './asset-media.controller';
+import { EventsController } from './event.controller';
 import { HealthController } from './health.controller';
 import { ServerController } from './server.controller';
 import { UserController } from './user.controller';
@@ -9,4 +11,10 @@ import { UserController } from './user.controller';
  * one application module and expresses composition through these registries,
  * which keeps a feature's wiring to three lines (repository, service, controller).
  */
-export const controllers = [HealthController, UserController, ServerController];
+export const controllers = [
+  HealthController,
+  UserController,
+  ServerController,
+  AssetMediaController,
+  EventsController,
+];

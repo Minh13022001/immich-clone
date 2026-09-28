@@ -21,7 +21,6 @@ export class UserService extends BaseService {
 
   async create(dto: CreateUserDto): Promise<User> {
     const email = normalizeEmail(dto.email);
-    console.log(dto, 888);
 
     try {
       const row = await this.userRepository.create({ name: dto.name.trim(), email });

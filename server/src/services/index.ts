@@ -1,3 +1,6 @@
+import { AssetMediaService } from './asset-media.service';
+import { AuthService } from './auth.service';
+import { JobService } from './job.service';
 import { ServerInfoService } from './server-info.service';
 import { UserService } from './user.service';
 
@@ -7,4 +10,10 @@ import { UserService } from './user.service';
  * `BaseService` is intentionally absent: it is an abstract-ish helper, not an
  * injectable, so it is extended rather than provided.
  */
-export const services = [UserService, ServerInfoService];
+export const services = [
+  UserService,
+  ServerInfoService,
+  AuthService,
+  AssetMediaService,
+  JobService,
+];

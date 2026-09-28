@@ -1,9 +1,16 @@
 import { Kysely, PostgresDialect } from 'kysely';
-import { Pool } from 'pg';
+import { Pool, types } from 'pg';
 
 import { DATABASE_POOL_SIZE } from '../constants';
 import type { Env } from '../validation';
 import { buildDatabaseUrl } from './config';
+
+/**
+ * `node-postgres` returns `int8`/`bigint` columns as strings to avoid precision
+ * loss. File sizes and quota counters comfortably fit a JS number here, and the
+ * upload service does arithmetic on them, so parse `int8` as a number.
+ */
+types.setTypeParser(20, (value) => Number(value));
 
 /**
  * Creates a Kysely instance over a `pg` pool.

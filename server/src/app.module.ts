@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { APP_FILTER } from '@nestjs/core';
 
 import { controllers } from './controllers';
+import { interceptors } from './interceptors';
 import { GlobalExceptionFilter } from './middleware/global-exception.filter';
 import { repositories } from './repositories';
 import { services } from './services';
@@ -15,20 +16,19 @@ import { validateEnv } from './validation';
  * composition expressed through the `index.ts` registries instead of a module
  * per feature.
  */
-const common = [...repositories, ...services];
+const common = [...repositories, ...services, ...interceptors];
 
 // this is configuring what inside an AppModule
 @Module({
-  imports: [ //Other NestJS modules that this module depends on. (importing ConfigModule)
-    ConfigModule.forRoot({ // Init the config system. It read your .env variables
-      isGlobal: true,      // Allows ConfigModule to be used in every other module without re-importing
+  imports: [
+    //Other NestJS modules that this module depends on. (importing ConfigModule)
+    ConfigModule.forRoot({
+      // Init the config system. It read your .env variables
+      isGlobal: true, // Allows ConfigModule to be used in every other module without re-importing
       validate: validateEnv, // Pass the env variables to the validateEnv function.
     }),
   ],
   controllers,
-  providers: [
-    ...common,
-    { provide: APP_FILTER, useClass: GlobalExceptionFilter },
-  ],
+  providers: [...common, { provide: APP_FILTER, useClass: GlobalExceptionFilter }],
 })
 export class AppModule {}

@@ -6,7 +6,7 @@ import { resolve } from '$app/paths';
  * Kept as a union rather than `string` so `resolve()` stays type-checked against
  * SvelteKit's generated route ids; adding a page means adding its path here.
  */
-export type NavPath = '/' | '/users' | '/server' | '/about';
+export type NavPath = '/' | '/upload' | '/users' | '/server' | '/about';
 
 export interface NavItem {
   /** Text shown in the sidebar and reused as the page title. */
@@ -29,6 +29,12 @@ export const NAV_ITEMS: readonly NavItem[] = [
     path: '/',
     description: 'Overview of this instance',
     icon: 'M3 10.6 12 3l9 7.6M5 9.5V21h14V9.5',
+  },
+  {
+    label: 'Upload',
+    path: '/upload',
+    description: 'Upload assets to this instance',
+    icon: 'M12 3v12m0-12-4 4m4-4 4 4M5 15v4a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-4',
   },
   {
     label: 'User management',

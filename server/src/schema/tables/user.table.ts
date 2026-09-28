@@ -13,6 +13,10 @@ export interface UserTable {
   id: Generated<string>;
   name: string;
   email: string;
+  /** `NULL` means "unlimited"; otherwise the upload ceiling in bytes. */
+  quotaSizeInBytes: number | null;
+  /** Running total of bytes uploaded, compared against `quotaSizeInBytes`. */
+  quotaUsageInBytes: Generated<number>;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

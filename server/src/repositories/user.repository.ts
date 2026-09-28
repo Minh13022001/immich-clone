@@ -58,4 +58,13 @@ export class UserRepository {
 
     return Number(result.numDeletedRows) > 0;
   }
+
+  /** Adds `bytes` to the running quota counter after a successful upload. */
+  async incrementQuotaUsage(id: string, bytes: number): Promise<void> {
+    await this.databaseRepository.db
+      .updateTable('users')
+      .set((eb) => ({ quotaUsageInBytes: eb('quotaUsageInBytes', '+', bytes) }))
+      .where('id', '=', id)
+      .execute();
+  }
 }

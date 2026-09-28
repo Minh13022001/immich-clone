@@ -1,6 +1,7 @@
 import type { Kysely } from 'kysely';
 
 import type { DB } from '../index';
+import * as CreateAssets from './1790000000000-CreateAssets';
 import * as CreateUsers from './1789862400000-CreateUsers';
 
 /**
@@ -22,5 +23,10 @@ export const migrations: Migration[] = [
     name: '1789862400000-CreateUsers',
     up: CreateUsers.up,
     down: CreateUsers.down,
+  },
+  {
+    name: '1790000000000-CreateAssets',
+    up: CreateAssets.up,
+    down: CreateAssets.down,
   },
 ];

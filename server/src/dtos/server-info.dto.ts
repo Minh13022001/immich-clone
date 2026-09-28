@@ -7,3 +7,15 @@ export interface ServerInfoDto {
   version: string;
   nodeVersion: string;
 }
+
+/**
+ * Response shape of `GET /api/server-info/media-types` (spec §8.3).
+ *
+ * Mime types only: the web client converts them into the extensions its file
+ * picker and drag-and-drop pre-filter should accept.
+ */
+export interface SupportedMediaTypesDto {
+  image: string[];
+  video: string[];
+  sidecar: string[];
+}
