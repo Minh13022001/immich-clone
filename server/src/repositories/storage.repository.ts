@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { createReadStream, type ReadStream } from 'node:fs';
 import { rm, stat, utimes } from 'node:fs/promises';
 
 /**
@@ -47,5 +48,17 @@ export class StorageRepository {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Opens `path` for streaming into an HTTP response.
+   *
+   * The caller owns the returned stream and must destroy it on client
+   * disconnect. A missing file surfaces asynchronously as a stream `error`
+   * event, so a caller that owes the client a 404 must check {@link size}
+   * first — the asset-serving path does exactly that.
+   */
+  createReadStream(path: string): ReadStream {
+    return createReadStream(path);
   }
 }

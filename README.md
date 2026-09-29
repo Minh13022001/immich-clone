@@ -294,7 +294,7 @@ pnpm cli server-info --url http://localhost:2283/api
     from column defaults, and returns the row.
 12. **Response.** The row travels back up unchanged and is serialised as JSON.
     The manager hands it to
-    [`PhotosStore.prepend`](web/src/lib/stores/photos.store.svelte.ts:19), and
+    [`PhotosStore.append`](web/src/lib/stores/photos.store.svelte.ts:19), and
     because the store's fields are `$state`, every component reading them
     re-renders.
 
@@ -445,4 +445,3 @@ To add a migration: create
 ([`migrate.ts`](server/src/bin/migrate.ts:36)) records applied migrations in
 `schema_migrations` and rolls back in reverse order — never edit an applied
 migration.
-

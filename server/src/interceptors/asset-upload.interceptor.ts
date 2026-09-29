@@ -40,7 +40,7 @@ export class AssetUploadInterceptor implements NestInterceptor {
       response.status(200);
       return of(duplicate);
     }
-
+    console.log("made a");
     return next.handle();
   }
 }

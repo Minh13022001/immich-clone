@@ -1,4 +1,9 @@
-export { bulkUploadCheck, getSupportedMediaTypes } from './assets';
+export {
+  bulkUploadCheck,
+  getAssetOriginalUrl,
+  getAssetThumbnailUrl,
+  getSupportedMediaTypes,
+} from './assets';
 export { ApiError, getBaseUrl, request, setBaseUrl } from './fetch-client';
 export { getServerInfo } from './server-info';
 export {

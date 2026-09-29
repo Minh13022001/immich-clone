@@ -1,4 +1,4 @@
-import { request } from './fetch-client';
+import { getBaseUrl, request } from './fetch-client';
 import type { BulkUploadCheckItem, BulkUploadCheckResponse, SupportedMediaTypes } from './types';
 
 /**
@@ -22,4 +22,26 @@ export function bulkUploadCheck(assets: BulkUploadCheckItem[]): Promise<BulkUplo
  */
 export function getSupportedMediaTypes(): Promise<SupportedMediaTypes> {
   return request<SupportedMediaTypes>('/server-info/media-types');
+}
+
+/**
+ * URL of an asset's display image (spec §5.1 read surface).
+ *
+ * Returns a plain string rather than fetching, because the callers are `<img>`
+ * and `<video>` elements: letting the browser own the request keeps streaming,
+ * range requests and caching out of the app. The server currently serves the
+ * original for this route; a real thumbnail stage can slot in behind it later.
+ */
+export function getAssetThumbnailUrl(id: string): string {
+  return `${getBaseUrl()}/assets/${encodeURIComponent(id)}/thumbnail`;
+}
+
+/**
+ * URL of an asset's full-size original, for the detail viewer and downloads.
+ *
+ * As with {@link getAssetThumbnailUrl} this is a URL, not a request — the
+ * browser streams the bytes.
+ */
+export function getAssetOriginalUrl(id: string): string {
+  return `${getBaseUrl()}/assets/${encodeURIComponent(id)}/original`;
 }

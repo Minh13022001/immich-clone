@@ -42,7 +42,7 @@ class UserManager {
     this.#store.error = null;
 
     try {
-      this.#store.prepend(await addUser(name, email));
+      this.#store.append(await addUser(name, email));
 
       return true;
     } catch (error) {

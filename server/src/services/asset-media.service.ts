@@ -3,8 +3,10 @@ import {
   Injectable,
   InternalServerErrorException,
   Logger,
+  NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { ReadStream } from 'node:fs';
 import { extname, join } from 'node:path';
 
 import type { AuthContext } from '../authentication/context';
@@ -33,10 +35,29 @@ import type { AssetRow } from '../schema';
 import { toAssetResponse } from '../utils/asset-mapper';
 import { decodeChecksum, fromChecksum, isAssetChecksumConstraint } from '../utils/checksum';
 import { readEnv } from '../utils/config';
-import { getAssetType, isAssetFile, isProfileFile, isSidecarFile } from '../utils/mime-types';
+import {
+  getAssetType,
+  getMimeType,
+  isAssetFile,
+  isProfileFile,
+  isSidecarFile,
+} from '../utils/mime-types';
 import { sanitizeFilename, StorageCore, StorageFolder } from '../utils/storage';
 import type { Env } from '../validation';
 import { BaseService } from './base.service';
+
+/**
+ * A resolved asset original, ready to be streamed to an HTTP response.
+ *
+ * Returned by {@link AssetMediaService.getAssetMediaFile}; the controller turns
+ * it into a `StreamableFile` and owns nothing but the response headers.
+ */
+export interface AssetMediaFile {
+  stream: ReadStream;
+  mimeType: string;
+  fileName: string;
+  size: number;
+}
 
 /**
  * Everything the upload endpoints need (spec §5.4).
@@ -281,6 +302,43 @@ export class AssetMediaService extends BaseService {
           isTrashed: found.deletedAt !== null,
         };
       }),
+    };
+  }
+
+  /**
+   * Resolves an asset's stored original for inline viewing.
+   *
+   * Ownership is enforced: an unknown id and a foreign id both answer `404`
+   * rather than `403`, so the endpoint cannot be used to probe which ids exist.
+   * The on-disk size is read first because it doubles as an existence check
+   * (the `asset` row can outlive its file) and as the response's
+   * `Content-Length`.
+   */
+  async getAssetMediaFile(auth: AuthContext, assetId: string): Promise<AssetMediaFile> {
+    if (!auth?.user) {
+      throw new BadRequestException('Authentication required');
+    }
+
+    const asset = this.assertFound(
+      await this.assetRepository.getById(assetId),
+      `Asset ${assetId} was not found`,
+    );
+
+    if (asset.ownerId !== auth.user.id) {
+      throw new NotFoundException(`Asset ${assetId} was not found`);
+    }
+
+    const size = await this.storageRepository.size(asset.originalPath);
+
+    if (size === null) {
+      throw new NotFoundException(`Asset ${assetId} has no file on disk`);
+    }
+
+    return {
+      stream: this.storageRepository.createReadStream(asset.originalPath),
+      mimeType: getMimeType(asset.originalFileName),
+      fileName: asset.originalFileName,
+      size,
     };
   }
 

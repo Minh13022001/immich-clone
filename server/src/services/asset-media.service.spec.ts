@@ -1,8 +1,13 @@
-import { BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import {
+  BadRequestException,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AuthContext, AuthUser } from '../authentication/context';
@@ -129,7 +134,12 @@ function createService(mediaRoot: string) {
   const exif = { getByAssetId: vi.fn(), upsert: vi.fn() };
   const users = { incrementQuotaUsage: vi.fn() };
   const jobs = { register: vi.fn(), queue: vi.fn(), drain: vi.fn() };
-  const storage = { setTimes: vi.fn(), deleteFiles: vi.fn(), size: vi.fn() };
+  const storage = {
+    setTimes: vi.fn(),
+    deleteFiles: vi.fn(),
+    size: vi.fn(),
+    createReadStream: vi.fn(),
+  };
   const events = { emit: vi.fn(), forUser: vi.fn() };
 
   const env: Env = {
@@ -662,6 +672,77 @@ describe('AssetMediaService', () => {
         files: [file.path, undefined],
       });
       expect(deps.users.incrementQuotaUsage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getAssetMediaFile', () => {
+    const ORIGINAL_PATH = `/media/upload/${USER_ID}/ab/cd/${UUID}.jpg`;
+    const auth = createAuth();
+
+    it('resolves the stream, mime type, name and size of an owned asset', async () => {
+      const stream = Readable.from(['bytes']);
+      deps.assets.getById.mockResolvedValue(createAssetRow());
+      deps.storage.size.mockResolvedValue(2048);
+      deps.storage.createReadStream.mockReturnValue(stream);
+
+      await expect(service.getAssetMediaFile(auth, ASSET_ID)).resolves.toEqual({
+        stream,
+        mimeType: 'image/jpeg',
+        fileName: 'photo.JPG',
+        size: 2048,
+      });
+
+      expect(deps.storage.size).toHaveBeenCalledWith(ORIGINAL_PATH);
+      expect(deps.storage.createReadStream).toHaveBeenCalledWith(ORIGINAL_PATH);
+    });
+
+    it('checks the file exists before opening a stream', async () => {
+      deps.assets.getById.mockResolvedValue(createAssetRow());
+      deps.storage.size.mockResolvedValue(2048);
+
+      await service.getAssetMediaFile(auth, ASSET_ID);
+
+      expect(deps.storage.size.mock.invocationCallOrder[0]).toBeLessThan(
+        deps.storage.createReadStream.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('reports an unknown asset as not found without touching storage', async () => {
+      deps.assets.getById.mockResolvedValue(undefined);
+
+      await expect(service.getAssetMediaFile(auth, ASSET_ID)).rejects.toThrowError(
+        NotFoundException,
+      );
+
+      expect(deps.storage.size).not.toHaveBeenCalled();
+      expect(deps.storage.createReadStream).not.toHaveBeenCalled();
+    });
+
+    it('hides an asset owned by somebody else behind the same 404', async () => {
+      deps.assets.getById.mockResolvedValue(createAssetRow({ ownerId: COUNTERPART_ID }));
+
+      await expect(service.getAssetMediaFile(auth, ASSET_ID)).rejects.toThrowError(
+        NotFoundException,
+      );
+
+      expect(deps.storage.size).not.toHaveBeenCalled();
+    });
+
+    it('reports a missing file as not found instead of opening a stream', async () => {
+      deps.assets.getById.mockResolvedValue(createAssetRow());
+      deps.storage.size.mockResolvedValue(null);
+
+      await expect(service.getAssetMediaFile(auth, ASSET_ID)).rejects.toThrowError(
+        NotFoundException,
+      );
+
+      expect(deps.storage.createReadStream).not.toHaveBeenCalled();
+    });
+
+    it('refuses to serve a file without an identity', async () => {
+      await expect(
+        service.getAssetMediaFile({ user: undefined } as unknown as AuthContext, ASSET_ID),
+      ).rejects.toThrowError(BadRequestException);
     });
   });
 });

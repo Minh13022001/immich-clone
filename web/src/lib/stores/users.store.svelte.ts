@@ -16,7 +16,7 @@ class UsersStore {
     this.users = users;
   }
 
-  prepend(user: User): void {
+  append(user: User): void {
     this.users = [user, ...this.users];
   }
 

@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import type { Response } from 'express';
+import { Readable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { AuthenticatedRequest } from '../authentication/context';
@@ -21,6 +22,7 @@ function createHarness(result: { id: string; status: AssetMediaStatus }) {
   const assetService = {
     uploadAsset: vi.fn().mockResolvedValue(result),
     bulkUploadCheck: vi.fn().mockResolvedValue({ results: [] }),
+    getAssetMediaFile: vi.fn(),
   };
   const controller = new AssetMediaController(assetService as unknown as AssetMediaService);
 
@@ -131,5 +133,50 @@ describe('AssetMediaController', () => {
     ).resolves.toEqual({ results: [] });
 
     expect(assetService.bulkUploadCheck).toHaveBeenCalledWith(request.auth, dto);
+  });
+
+  it('streams an asset as an inline file with the resolved type and length', async () => {
+    const { controller, assetService, request } = createHarness({
+      id: 'asset-1',
+      status: AssetMediaStatus.CREATED,
+    });
+    const stream = Readable.from(['bytes']);
+    assetService.getAssetMediaFile.mockResolvedValue({
+      stream,
+      mimeType: 'image/jpeg',
+      fileName: 'photo final.jpg',
+      size: 5,
+    });
+    const id = 'abcd1234-0000-4000-8000-000000000000';
+
+    const file = await controller.getOriginal(request as unknown as AuthenticatedRequest, id);
+
+    expect(assetService.getAssetMediaFile).toHaveBeenCalledWith(request.auth, id);
+    expect(file.getStream()).toBe(stream);
+    expect(file.getHeaders()).toEqual({
+      type: 'image/jpeg',
+      disposition: "inline; filename*=UTF-8''photo%20final.jpg",
+      length: 5,
+    });
+  });
+
+  it('serves the thumbnail through the same file resolution', async () => {
+    const { controller, assetService, request } = createHarness({
+      id: 'asset-1',
+      status: AssetMediaStatus.CREATED,
+    });
+    assetService.getAssetMediaFile.mockResolvedValue({
+      stream: Readable.from(['bytes']),
+      mimeType: 'image/png',
+      fileName: 'shot.png',
+      size: 5,
+    });
+    const id = 'abcd1234-0000-4000-8000-000000000000';
+
+    const file = await controller.getThumbnail(request as unknown as AuthenticatedRequest, id);
+
+    expect(assetService.getAssetMediaFile).toHaveBeenCalledWith(request.auth, id);
+    expect(file.getHeaders().type).toBe('image/png');
+    expect(file.getHeaders().disposition).toBe("inline; filename*=UTF-8''shot.png");
   });
 });

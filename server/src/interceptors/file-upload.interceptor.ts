@@ -97,7 +97,7 @@ export class FileUploadInterceptor implements NestInterceptor {
     const response = context.switchToHttp().getResponse<Response>();
 
     await this.run(this.handlerFor(route), request, response);
-
+    console.log('wrong turn');
     return next.handle();
   }
 

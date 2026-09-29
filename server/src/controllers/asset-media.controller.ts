@@ -1,11 +1,15 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
   Post,
   Req,
   Res,
+  StreamableFile,
   UseInterceptors,
 } from '@nestjs/common';
 import type { Response } from 'express';
@@ -81,5 +85,50 @@ export class AssetMediaController {
     @Body() dto: BulkUploadCheckDto,
   ): Promise<BulkUploadCheckResponseDto> {
     return this.assetService.bulkUploadCheck(request.auth, dto);
+  }
+
+  /**
+   * Streams the asset's bytes for inline display (`<img src>` / `<video src>`).
+   *
+   * There is no derived thumbnail yet — the pipeline stage is a pass-through —
+   * so this serves the original. It stays a separate route from `original` so a
+   * real thumbnail stage can be slotted in later without an API change.
+   */
+  @Get(':id/thumbnail')
+  @Authenticated()
+  getThumbnail(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<StreamableFile> {
+    return this.serveAssetFile(request, id, 'inline');
+  }
+
+  /**
+   * Streams the full-size original. Marked `inline` so a browser renders it;
+   * clients that want a download ask for it with the anchor's `download`
+   * attribute instead of relying on a `Content-Disposition: attachment`.
+   */
+  @Get(':id/original')
+  @Authenticated()
+  getOriginal(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<StreamableFile> {
+    return this.serveAssetFile(request, id, 'inline');
+  }
+
+  /** Shared tail of the two read routes: resolve the file, shape the headers. */
+  private async serveAssetFile(
+    request: AuthenticatedRequest,
+    id: string,
+    disposition: 'inline' | 'attachment',
+  ): Promise<StreamableFile> {
+    const file = await this.assetService.getAssetMediaFile(request.auth, id);
+
+    return new StreamableFile(file.stream, {
+      type: file.mimeType,
+      length: file.size,
+      disposition: `${disposition}; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
+    });
   }
 }

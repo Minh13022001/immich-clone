@@ -1,6 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
 
+  import type { Asset } from '@immich/sdk';
+
+  import AssetThumbnail from '$lib/components/asset-thumbnail.svelte';
+  import AssetViewer from '$lib/components/asset-viewer.svelte';
   import UploadDropZone from '$lib/components/upload/upload-drop-zone.svelte';
   import { timelineManager } from '$lib/managers/timeline-manager.svelte';
   import { uploadManager } from '$lib/managers/upload-manager.svelte';
@@ -8,6 +12,9 @@
 
   /** Native picker filter; empty until the server's list has loaded. */
   let accept = $state('');
+
+  /** The asset whose full-size view is open, or `null` when the viewer is shut. */
+  let selected = $state<Asset | null>(null);
 
   onMount(async () => {
     // Learn what the server accepts before the first picker opens (spec §8.3).
@@ -66,13 +73,16 @@
     {:else}
       <ul class="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
         {#each timelineManager.assets as asset (asset.id)}
-          <li class="flex items-center justify-between gap-3 px-3 py-2">
-            <div class="min-w-0">
+          <li class="flex items-center gap-3 px-3 py-2">
+            <AssetThumbnail {asset} onOpen={(value) => (selected = value)} />
+
+            <div class="min-w-0 flex-1">
               <p class="truncate text-sm">{asset.originalFileName}</p>
               <p class="truncate text-xs text-muted">
                 {asset.type.toLowerCase()} · {formatTimestamp(asset.fileCreatedAt)}
               </p>
             </div>
+
             <span class="shrink-0 text-xs text-muted">{asset.visibility.toLowerCase()}</span>
           </li>
         {/each}
@@ -80,3 +90,5 @@
     {/if}
   </div>
 </section>
+
+<AssetViewer asset={selected} onClose={() => (selected = null)} />

@@ -52,7 +52,7 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     return undefined as T;
   }
 
-  return (await response.json()) as T;
+  return (await response.json()) as T; // the .json() just get the res.body and turn it to json
 }
 
 async function readBody(response: Response): Promise<unknown> {
