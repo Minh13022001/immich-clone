@@ -19,6 +19,7 @@ import {
   AssetVisibility,
   UploadFieldName,
   type AssetMediaResponseDto,
+  type AssetResponseDto,
   type BulkUploadCheckDto,
   type BulkUploadCheckResponseDto,
   type CreateAssetDto,
@@ -340,6 +341,20 @@ export class AssetMediaService extends BaseService {
       fileName: asset.originalFileName,
       size,
     };
+  }
+
+  /**
+   * Every asset the caller owns, newest first, for the library view.
+   *
+   * The response reuses the same projection the SSE stream sends, so a client
+   * can render a fetched asset and a pushed one with one code path.
+   */
+  async getAssets(auth: AuthContext): Promise<AssetResponseDto[]> {
+    this.requireUploadAccess(auth);
+
+    const rows = await this.assetRepository.listByOwner(auth.user.id);
+
+    return rows.map((row) => toAssetResponse(row));
   }
 
   /** Path for a part without creating anything (used by error cleanup). */

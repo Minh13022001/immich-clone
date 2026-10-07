@@ -6,9 +6,11 @@
   interface Props {
     asset: Asset;
     onOpen: (asset: Asset) => void;
+    /** Layout classes; defaults to the compact list-row thumbnail size. */
+    class?: string;
   }
 
-  let { asset, onOpen }: Props = $props();
+  let { asset, onOpen, class: className = 'aspect-square w-16' }: Props = $props();
 
   /** Flipped by the image's `error` event when the server cannot serve the bytes. */
   let failed = $state(false);
@@ -20,7 +22,7 @@
 
 <button
   type="button"
-  class="group relative grid aspect-square w-16 shrink-0 cursor-pointer place-items-center overflow-hidden rounded-md border border-border bg-background"
+  class="group relative grid {className} shrink-0 cursor-pointer place-items-center overflow-hidden rounded-md border border-border bg-background"
   aria-label="View {asset.originalFileName}"
   onclick={() => onOpen(asset)}
 >

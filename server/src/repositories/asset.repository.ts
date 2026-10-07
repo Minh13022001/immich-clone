@@ -42,6 +42,17 @@ export class AssetRepository {
       .executeTakeFirst();
   }
 
+  /** Every non-trashed asset a user owns, newest capture first (library view). */
+  listByOwner(ownerId: string): Promise<AssetRow[]> {
+    return this.databaseRepository.db
+      .selectFrom('asset')
+      .selectAll()
+      .where('ownerId', '=', ownerId)
+      .where('deletedAt', 'is', null)
+      .orderBy('fileCreatedAt', 'desc')
+      .execute();
+  }
+
   /** `(ownerId, checksum)` lookup backing the header/bulk fast paths. */
   getByChecksum(ownerId: string, checksum: Buffer): Promise<AssetRow | undefined> {
     return this.databaseRepository.db

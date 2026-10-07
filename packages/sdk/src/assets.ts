@@ -1,5 +1,20 @@
 import { getBaseUrl, request } from './fetch-client';
-import type { BulkUploadCheckItem, BulkUploadCheckResponse, SupportedMediaTypes } from './types';
+import type {
+  Asset,
+  BulkUploadCheckItem,
+  BulkUploadCheckResponse,
+  SupportedMediaTypes,
+} from './types';
+
+/**
+ * Every asset the caller owns, newest first (library view).
+ *
+ * Returns the full asset projection rather than a paginated envelope: this clone
+ * has no paging UI, and the server already scopes the query to the caller.
+ */
+export function getAssets(): Promise<Asset[]> {
+  return request<Asset[]>('/assets');
+}
 
 /**
  * Duplicate pre-check (spec §4.2).

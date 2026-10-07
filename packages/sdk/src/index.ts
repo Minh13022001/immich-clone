@@ -2,6 +2,7 @@ export {
   bulkUploadCheck,
   getAssetOriginalUrl,
   getAssetThumbnailUrl,
+  getAssets,
   getSupportedMediaTypes,
 } from './assets';
 export { ApiError, getBaseUrl, request, setBaseUrl } from './fetch-client';

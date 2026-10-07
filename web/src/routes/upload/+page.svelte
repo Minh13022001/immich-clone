@@ -17,9 +17,7 @@
   let selected = $state<Asset | null>(null);
 
   onMount(async () => {
-    // Learn what the server accepts before the first picker opens (spec §8.3).
-    // Failure is non-fatal: the picker then accepts everything and the server
-    // rejects unsupported files.
+
     await uploadManager.loadMediaTypes();
     accept = uploadManager.extensions.map((extension) => `.${extension}`).join(',');
   });

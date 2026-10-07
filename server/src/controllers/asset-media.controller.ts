@@ -21,6 +21,7 @@ import {
   CreateAssetDto,
   UploadFieldName,
   type AssetMediaResponseDto,
+  type AssetResponseDto,
   type BulkUploadCheckResponseDto,
 } from '../dtos/asset-media.dto';
 import { AssetUploadInterceptor } from '../interceptors/asset-upload.interceptor';
@@ -46,6 +47,13 @@ export class AssetMediaController {
   private readonly fileNotEmpty = new FileNotEmptyValidator([UploadFieldName.ASSET_DATA]);
 
   constructor(private readonly assetService: AssetMediaService) {}
+
+  /** Every asset the caller owns, newest first — backs the library page. */
+  @Get()
+  @Authenticated()
+  listAssets(@Req() request: AuthenticatedRequest): Promise<AssetResponseDto[]> {
+    return this.assetService.getAssets(request.auth);
+  }
 
   @Post()
   @Authenticated({ permission: Permission.AssetUpload })
