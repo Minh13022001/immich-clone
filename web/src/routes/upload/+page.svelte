@@ -32,6 +32,7 @@
 
   function onPick(event: Event): void {
     const input = event.currentTarget as HTMLInputElement;
+    console.log(input, input.files, input.value, 'input 99');
 
     startUpload(Array.from(input.files ?? []));
     // Reset so picking the same file twice still fires `change`.
@@ -53,7 +54,7 @@
     <p class="text-xs text-muted">or paste an image from the clipboard</p>
 
     <label class="btn mt-2">
-      Select files
+      Select files ne`
       <input class="sr-only" type="file" multiple {accept} onchange={onPick} />
     </label>
   </UploadDropZone>

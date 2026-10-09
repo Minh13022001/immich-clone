@@ -42,7 +42,7 @@ import { AssetMediaService } from '../services/asset-media.service';
  * choosing the status code — 201 for a new asset, 200 when the upload turned out
  * to be a duplicate.
  */
-@Controller('assets')
+@Controller('assetsy')
 export class AssetMediaController {
   private readonly fileNotEmpty = new FileNotEmptyValidator([UploadFieldName.ASSET_DATA]);
 

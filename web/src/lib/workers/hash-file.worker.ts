@@ -60,7 +60,8 @@ async function handle(file: File): Promise<HashWorkerResponse> {
   }
 }
 
-self.addEventListener('message', (event) => {
+self.addEventListener('message', (event) => { // is this the part sending event back to the  worker.addEventListener('message', (event: MessageEvent<HashWorkerResponse>) => {
+
   void handle(event.data as File).then((response) => {
     self.postMessage(response);
   });

@@ -97,6 +97,13 @@ export async function fileUploadHandler({
   albumId,
   isLockedAssets,
 }: FileUploadHandlerOptions): Promise<string[]> {
+  console.log(
+    '[fileUploadHandler] received',
+    files.length,
+    'file(s):',
+    files.map((file) => file.name),
+  );
+
   const supported = files.filter((file) => isSupportedFile(file));
 
   if (supported.length !== files.length) {
@@ -106,7 +113,7 @@ export async function fileUploadHandler({
   const uploads = supported.map((file) => {
     const deviceAssetId = deviceAssetIdFor(file);
 
-    if (!uploadStore.addItem({ id: deviceAssetId, file, albumId })) {
+    if (!uploadStore.addItem({ id: deviceAssetId, file, albumId })) { // add new item if it not already inside items
       return Promise.resolve<string | undefined>(undefined);
     }
 
@@ -143,6 +150,7 @@ export async function fileUploader({
     if (isLockedAssets) {
       formData.append('visibility', AssetVisibility.LOCKED);
     }
+    console.log('how about this');
 
     // 1. Hash locally, then ask the server whether it already has these bytes.
     //    A hit means the file never leaves the machine (spec §4.2).
