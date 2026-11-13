@@ -12,9 +12,7 @@ export function hashFile(file: File): Promise<string> {
   console.log('[hashFile] entered for', file.name);
 
   return new Promise<string>((resolve, reject) => {
-    // Vite only recognises (and bundles) a Worker when the script URL is built
-    // against `import.meta.url`. Without it, `../workers/...` is resolved against
-    // the page (document.baseURI), the request 404s, and hashing silently fails.
+
     const worker = new Worker(new URL('../workers/hash-file.worker.ts', import.meta.url), {
       type: 'module',
     });
@@ -23,7 +21,7 @@ export function hashFile(file: File): Promise<string> {
       worker.terminate();
     };
 
-    worker.addEventListener('message', (event: MessageEvent<HashWorkerResponse>) => { // this is listen to the messages send from hash-file-worker.ts
+    worker.addEventListener('message', (event: MessageEvent<HashWorkerResponse>) => { // this is listen to the messages send from hash-file-worker.ts : 66
       console.log(event, "event 11");
       stop();
 

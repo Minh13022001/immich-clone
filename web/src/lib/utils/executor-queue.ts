@@ -38,9 +38,11 @@ export class ExecutorQueue {
    * Queues `task` and resolves with its result once a slot frees up. The
    * returned promise settles with the task, so callers never see the queue.
    */
-  push<T>(task: () => Promise<T>): Promise<T> {
+  push<T>(task: () => Promise<T>): Promise<T> { //push doesn't just store the job — it also presses "start" if there's room. 
     return new Promise<T>((resolve, reject) => {
-      this.#tasks.push(() => task().then(resolve, reject));
+      console.log(2222222222222, resolve, reject, this.#tasks);
+      this.#tasks.push(() => task().then(resolve, reject));  //"When this Promise finishes, immediately call resolve or reject , this is just a abbreviation"
+      console.log(this.#tasks, 'add task', 3333333333333);
       this.#drain();
     });
   }
@@ -48,21 +50,26 @@ export class ExecutorQueue {
   #drain(): void {
     while (this.#running < this.#concurrency && this.#tasks.length > 0) {
       const task = this.#tasks.shift();
+      console.log(task, 'the task to execute', 444444444444444); // () => task().then(resolve, reject) 'the task to execute' 444444444444444
 
       if (!task) {
         return;
       }
 
       this.#running += 1;
+      console.log(this.#running, 'running task', 5555555555555555);
 
       const release = () => {
+        console.log(this.#running, 'release task', 6666666666666);
         this.#running -= 1;
         this.#drain();
       };
 
       // `push` already routed the task's rejection to its own promise, so the
       // queue never sees an unhandled rejection.
-      void task().then(release, release);
+      console.log('task', task, 7777777777777777777777777);
+      void task().then(release, release); // this would become task().then(resolve, reject).then(release, release); , and this line will pending until it meeet the first await.
+      console.log(this.#tasks, "remove task", 88888888888888888888);
     }
   }
 }

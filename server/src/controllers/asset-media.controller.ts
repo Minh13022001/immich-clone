@@ -42,47 +42,47 @@ import { AssetMediaService } from '../services/asset-media.service';
  * choosing the status code — 201 for a new asset, 200 when the upload turned out
  * to be a duplicate.
  */
-@Controller('assetsy')
+@Controller('assets') //1
 export class AssetMediaController {
   private readonly fileNotEmpty = new FileNotEmptyValidator([UploadFieldName.ASSET_DATA]);
 
   constructor(private readonly assetService: AssetMediaService) {}
 
-  /** Every asset the caller owns, newest first — backs the library page. */
   @Get()
   @Authenticated()
   listAssets(@Req() request: AuthenticatedRequest): Promise<AssetResponseDto[]> {
     return this.assetService.getAssets(request.auth);
   }
 
-  @Post()
-  @Authenticated({ permission: Permission.AssetUpload })
-  // Order matters: the checksum fast path can short-circuit before multer reads
-  // a single byte of the body.
-  @UseInterceptors(AssetUploadInterceptor, FileUploadInterceptor)
-  @UploadRoute(RouteKey.Asset)
-  async uploadAsset(
-    @Req() request: AuthenticatedRequest,
+  @Post() //2
+  @Authenticated({ permission: Permission.AssetUpload }) // must be logged in AND have the AssetUpload permission
+
+  @UseInterceptors(AssetUploadInterceptor, FileUploadInterceptor) // run left to right: checksum check first, file parsing second
+  @UploadRoute(RouteKey.Asset) // tells FileUploadInterceptor which fields to accept (assetData + sidecarData)
+
+  
+  async uploadAsset( 
+    @Req() request: AuthenticatedRequest, // the request, with `auth` = who is calling
     @Body() dto: CreateAssetDto,
-    @Res({ passthrough: true }) response: Response,
-  ): Promise<AssetMediaResponseDto> {
-    this.fileNotEmpty.validate(request);
+    @Res({ passthrough: true }) response: Response, 
+  ): Promise<AssetMediaResponseDto> { 
+    this.fileNotEmpty.validate(request); 
 
-    const file = getUploadedFile(request, UploadFieldName.ASSET_DATA);
-    const sidecarFile = getUploadedFile(request, UploadFieldName.SIDECAR_DATA);
+    const file = getUploadedFile(request, UploadFieldName.ASSET_DATA); 
+    const sidecarFile = getUploadedFile(request, UploadFieldName.SIDECAR_DATA); 
 
-    if (!file) {
+    if (!file) { // no main file means there is nothing to save
       // `fileNotEmpty` already threw, so this only satisfies the type checker.
-      throw new Error('Asset part was not parsed');
+      throw new Error('Asset part was not parsed'); // unreachable at runtime; just narrows `file` to non-undefined
     }
 
-    const result = await this.assetService.uploadAsset(request.auth, dto, file, sidecarFile);
+    const result = await this.assetService.uploadAsset(request.auth, dto, file, sidecarFile); // real work (save file, DB rows) lives in the service
 
-    if (result.status === AssetMediaStatus.DUPLICATE) {
-      response.status(HttpStatus.OK);
+    if (result.status === AssetMediaStatus.DUPLICATE) { // duplicate = nothing new was created
+      response.status(HttpStatus.OK); // so answer 200 instead of Nest's default 201
     }
 
-    return result;
+    return result; // send it as the JSON body (201 for new, 200 for duplicate)
   }
 
   @Post('bulk-upload-check')

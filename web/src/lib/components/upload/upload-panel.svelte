@@ -8,6 +8,17 @@
   let minimized = $state(false);
 
   const visible = $derived(uploadManager.items.length > 0);
+//   console.log({
+//   items: uploadManager.items,
+//   total: uploadManager.total,
+//   success: uploadManager.success,
+//   errors: uploadManager.errors,
+//   duplicates: uploadManager.duplicates,
+//   concurrency: uploadManager.concurrency,
+//   isUploading: uploadManager.isUploading,
+//   remainingUploads: uploadManager.remainingUploads,
+// });
+
 
   const aggregate = $derived.by(() => {
     let totalBytes = 0;

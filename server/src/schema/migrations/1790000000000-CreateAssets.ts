@@ -52,7 +52,7 @@ export async function up(db: Kysely<DB>): Promise<void> {
     .createIndex('ASSET_CHECKSUM_CONSTRAINT')
     .on('asset')
     .columns(['ownerId', 'checksum'])
-    .unique()
+    // .unique()
     .execute();
 
   await db.schema

@@ -39,7 +39,7 @@ export interface UploadItem {
   error?: string;
   message?: string;
 }
-
+// this is singleton?
 class UploadStore {
   items = $state<UploadItem[]>([]);
   total = $state(0);

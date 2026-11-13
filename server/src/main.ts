@@ -20,12 +20,12 @@ async function bootstrap(): Promise<void> {
 
   // Step 1 of every request: middleware. Runs BEFORE routing and validation,
   // for all paths, including 404s.
-  app.use((req: Request, _res: Response, next: NextFunction) => {
+  app.use((req: Request, _res: Response, next: NextFunction) => {         // <-- register middleware
     console.log(`[REQ 1] middleware saw ${req.method} ${req.originalUrl}`);
-    next();
+    next();  //hands control to Nest's router
   });
 
-  app.useGlobalPipes(
+  app.useGlobalPipes(             // /  <-- Register validation pipe
     // Validates incoming request data using my DTOs.
     new ValidationPipe({
       whitelist: true,

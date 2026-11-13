@@ -22,19 +22,21 @@
     accept = uploadManager.extensions.map((extension) => `.${extension}`).join(',');
   });
 
-  function startUpload(files: File[]): void {
+  async function startUpload(files: File[]): Promise<void> {
     if (files.length === 0) {
       return;
     }
 
-    void uploadManager.upload(files);
+    const uploadedIds = await uploadManager.upload(files);
+    // Only show what this batch uploaded, not the whole library.
+    await timelineManager.refresh(uploadedIds);
   }
 
   function onPick(event: Event): void {
     const input = event.currentTarget as HTMLInputElement;
     console.log(input, input.files, input.value, 'input 99');
 
-    startUpload(Array.from(input.files ?? []));
+    void startUpload(Array.from(input.files ?? []));
     // Reset so picking the same file twice still fires `change`.
     input.value = '';
   }

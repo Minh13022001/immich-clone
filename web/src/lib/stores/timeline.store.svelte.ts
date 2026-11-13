@@ -20,6 +20,11 @@ class TimelineStore {
     );
   }
 
+  /** Replaces the feed with a fresh server list (used after an upload batch). */
+  set(assets: Asset[]): void {
+    this.assets = assets.slice(0, MAX_ASSETS);
+  }
+
   reset(): void {
     this.assets = [];
   }

@@ -1,5 +1,6 @@
 import type { Asset, AssetUploadReadyEvent } from '@immich/sdk';
 
+import { listAssets } from '$lib/services/assets.service';
 import { subscribeToServerEvents } from '$lib/services/events.service';
 import { timelineStore } from '$lib/stores/timeline.store.svelte';
 
@@ -44,6 +45,22 @@ class TimelineManager {
         }
       },
     });
+  }
+
+  /**
+   * Re-reads the library so an upload shows up even when the event stream is
+   * delayed or unavailable. Pass `ids` to keep only those assets.
+   */
+  async refresh(ids?: string[]): Promise<void> {
+    try {
+      const assets = await listAssets();
+
+      timelineStore.set(
+        ids ? assets.filter((asset) => ids.includes(asset.id)) : assets,
+      );
+    } catch (error) {
+      console.warn('[timeline] Could not refresh assets', error);
+    }
   }
 
   disconnect(): void {

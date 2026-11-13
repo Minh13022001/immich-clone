@@ -105,6 +105,7 @@ export async function fileUploadHandler({
   );
 
   const supported = files.filter((file) => isSupportedFile(file));
+  console.log(supported, 'supported');
 
   if (supported.length !== files.length) {
     console.warn(`[upload] Ignored ${files.length - supported.length} unsupported file(s)`);
@@ -113,16 +114,23 @@ export async function fileUploadHandler({
   const uploads = supported.map((file) => {
     const deviceAssetId = deviceAssetIdFor(file);
 
-    if (!uploadStore.addItem({ id: deviceAssetId, file, albumId })) { // add new item if it not already inside items
+    console.log(deviceAssetId, 'deviceAssetId 33333');
+
+    if (!uploadStore.addItem({ id: deviceAssetId, file, albumId })) { // return if the item is already added
       return Promise.resolve<string | undefined>(undefined);
     }
 
-    return queue.push(() =>
-      fileUploader({ assetFile: file, deviceAssetId, albumId, isLockedAssets }),
-    );
+    console.log(1111111111111);
+    return queue.push(() => {  // this only push the callback, not execute fileUploader(...) immediately. only when the callback is called, then fileUploader(...) will be executed
+      console.log('queue.push', 1234456);
+      return fileUploader({ assetFile: file, deviceAssetId, albumId, isLockedAssets });
+    });
+    
   });
+  console.log(uploads, 'uploads');
 
-  const assetIds = await Promise.all(uploads);
+  const assetIds = await Promise.all(uploads); //we have await here to gets: the actual array after all Promises fulfill.
+  console.log(assetIds, "assetIds");
 
   return assetIds.filter((assetId): assetId is string => typeof assetId === 'string');
 }
@@ -131,6 +139,7 @@ export async function fileUploadHandler({
  * Uploads one file, updating the store as it goes. Never throws: a failure
  * becomes an `ERROR` item with a message the panel can show.
  */
+
 export async function fileUploader({
   assetFile,
   deviceAssetId,
@@ -139,6 +148,7 @@ export async function fileUploader({
   uploadStore.markStarted(deviceAssetId);
 
   try {
+    console.log('hello from fileuploader', 999999999999);
     const formData = new FormData();
     formData.append('fileCreatedAt', new Date(assetFile.lastModified).toISOString());
     formData.append('fileModifiedAt', new Date(assetFile.lastModified).toISOString());
@@ -150,22 +160,25 @@ export async function fileUploader({
     if (isLockedAssets) {
       formData.append('visibility', AssetVisibility.LOCKED);
     }
-    console.log('how about this');
+    console.log('how about this', 999999999999);
 
     // 1. Hash locally, then ask the server whether it already has these bytes.
     //    A hit means the file never leaves the machine (spec §4.2).
     const checksum = await hashFile(assetFile);
-    const [check] = (await checkBulkUpload([{ id: assetFile.name, checksum }])).results;
+    console.log(checksum, 'checksum', 9999999999999);
+    
+    // const [check] = (await checkBulkUpload([{ id: assetFile.name, checksum }])).results;
+    // console.log(check, 'check', 9999999999);
+    // if (check?.action === AssetUploadAction.REJECT) {
+    //   uploadStore.updateItem(deviceAssetId, { // set state duplicate if the checksum already there
+    //     assetId: check.assetId,
+    //     isTrashed: check.isTrashed ?? false,
+    //     state: UploadState.DUPLICATED,
+    //   });
 
-    if (check?.action === AssetUploadAction.REJECT) {
-      uploadStore.updateItem(deviceAssetId, {
-        assetId: check.assetId,
-        isTrashed: check.isTrashed ?? false,
-        state: UploadState.DUPLICATED,
-      });
-
-      return undefined;
-    }
+    //   return undefined;
+    // }
+    console.log('how about this 2', 999999999999);
 
     // 2. Upload, reporting progress on the way.
     const { data, status } = await uploadRequest<AssetMediaResponse>('/assets', formData, {
@@ -173,12 +186,14 @@ export async function fileUploader({
         uploadStore.updateProgress(deviceAssetId, loaded, total);
       },
     });
+    console.log('how about this 3', 999999999999);
 
     if (status !== 200 && status !== 201) {
       throw new Error(`Unexpected upload status ${status}`);
     }
 
     if (data.status === AssetMediaStatus.DUPLICATE) {
+      console.log(data, data.status, "data.status");
       uploadStore.track('duplicate');
       uploadStore.updateItem(deviceAssetId, {
         assetId: data.id,

@@ -7,6 +7,7 @@ import {
   type NestInterceptor,
   SetMetadata,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import type { Request, Response } from 'express';
 import multer from 'multer';
 import { createHash } from 'node:crypto';
@@ -32,7 +33,6 @@ export enum RouteKey {
 
 export const ROUTE_KEY_METADATA = 'upload:route-key';
 
-/** Tags a handler so `FileUploadInterceptor` knows which multer handler to run. */
 export const UploadRoute = (key: RouteKey) => SetMetadata(ROUTE_KEY_METADATA, key);
 
 type MulterHandler = (
@@ -69,9 +69,12 @@ interface UploadStorageEngine {
 @Injectable()
 export class FileUploadInterceptor implements NestInterceptor {
   private readonly logger = new Logger(FileUploadInterceptor.name);
-  private readonly upload: multer.Multer;
+  private readonly upload: multer.Multer;   // This declares the property and its type. It doesn't assign a value.
 
-  constructor(private readonly assetService: AssetMediaService) {
+  constructor( // run on register
+    private readonly reflector: Reflector,
+    private readonly assetService: AssetMediaService,
+  ) {
     const storage = this.createStorage();
     const fileFilter: multer.Options['fileFilter'] = (request, file, callback) => {
       try {
@@ -86,6 +89,10 @@ export class FileUploadInterceptor implements NestInterceptor {
   }
 
   async intercept(context: ExecutionContext, next: CallHandler): Promise<Observable<unknown>> {
+    // the only method auto run for this class
+    const key = this.reflector.get(ROUTE_KEY_METADATA, context.getHandler());
+
+    console.log(key, 77);
     const route = Reflect.getMetadata(ROUTE_KEY_METADATA, context.getHandler()) as
       RouteKey | undefined;
 
@@ -98,7 +105,7 @@ export class FileUploadInterceptor implements NestInterceptor {
 
     await this.run(this.handlerFor(route), request, response);
     console.log('wrong turn');
-    return next.handle();
+    return next.handle();          // continue
   }
 
   private handlerFor(route: RouteKey): MulterHandler {
@@ -143,10 +150,10 @@ export class FileUploadInterceptor implements NestInterceptor {
   }
 
   private createStorage(): UploadStorageEngine {
-    return {
-      _handleFile: (request, file, callback) => {
-        // A cancelled connection leaves a truncated file behind; queue its
-        // deletion so a reset never strands bytes on disk (spec §5.3 step 1).
+    return {                                          // this object later passed to multer
+      _handleFile: (request, file, callback) => {     // for saving uploaded file to disk
+  
+        
         request.on('error', (error: NodeJS.ErrnoException) => {
           if (error.code === 'ECONNRESET') {
             this.logger.warn(`Upload cancelled: ${file.originalname}`);
@@ -192,10 +199,10 @@ export class FileUploadInterceptor implements NestInterceptor {
 
         file.stream.pipe(writeStream);
       },
-      _removeFile: (_request, file, callback) => {
-        unlink(file.path).then(
+      _removeFile: (_request, file, callback) => { 
+        unlink(file.path).then(              // function for deleting a flie form disk
           () => callback(null),
-          (error: Error) => callback(error),
+          (error: Error) => callback(error),   // the callbak is provided by multer
         );
       },
     };
