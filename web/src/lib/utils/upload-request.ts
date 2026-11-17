@@ -1,12 +1,16 @@
-import { ApiError, getBaseUrl } from '@immich/sdk';
+import { ApiError } from '@immich/sdk';
 
 /**
  * The upload transport (spec §8.1).
  *
- * `fetch` cannot report *upload* progress, so uploads go through
- * `XMLHttpRequest` — the only API that exposes `upload.onprogress` and a
- * synchronous `abort()`. Every in-flight request is registered here, which is
- * what lets the manager cancel them all when the session ends.
+ * `fetch` cannot report *upload* progress and cannot be aborted mid-body in the
+ * same way, so the bytes go through `XMLHttpRequest` — the only API that exposes
+ * `upload.onprogress` and a synchronous `abort()`. Every in-flight request is
+ * registered here, which is what lets the manager cancel them all when the
+ * session ends.
+ *
+ * Requests go to an **absolute** URL now: the body is written straight to the
+ * object store through a presigned URL, not to this API.
  */
 
 export interface UploadProgress {
@@ -14,16 +18,29 @@ export interface UploadProgress {
   total: number;
 }
 
-export interface UploadRequestOptions {
-  /** Called repeatedly with cumulative bytes sent. */
+export interface PresignedUploadOptions {
+  /** Always `PUT` for S3 presigned URLs; kept explicit for clarity. */
+  method?: 'PUT';
+  /**
+   * Headers the server signed into the URL. They must be sent verbatim, or the
+   * store rejects the request.
+   */
+  headers?: Record<string, string>;
+  /** Called repeatedly with cumulative bytes sent for this request. */
   onProgress?: (progress: UploadProgress) => void;
   /** Aborting the signal aborts the request. */
   signal?: AbortSignal;
 }
 
-export interface UploadResponse<T> {
-  data: T;
+export interface PresignedUploadResult {
   status: number;
+  /**
+   * ETag of the stored object/part, when the bucket exposes it through CORS.
+   *
+   * Only a convenience: the server re-reads the authoritative part listing, so a
+   * missing ETag costs nothing but an omitted advisory list.
+   */
+  etag?: string;
 }
 
 const inFlight = new Set<XMLHttpRequest>();
@@ -38,16 +55,18 @@ export function cancelUploadRequests(): void {
 }
 
 /**
- * POSTs `formData` and resolves with the parsed body plus the HTTP status, so
- * the caller can tell `201 created` from `200 duplicate` (both are successes).
- * Anything outside 2xx rejects with an `ApiError` carrying the server's body.
+ * PUTs raw bytes at a presigned URL, reporting progress as it goes.
+ *
+ * Resolves for any 2xx; anything else rejects with an `ApiError` carrying the
+ * store's own message (S3 answers with a small XML document, which is far more
+ * useful than a bare status code when a signature or checksum is wrong).
  */
-export function uploadRequest<T>(
-  path: string,
-  formData: FormData,
-  options: UploadRequestOptions = {},
-): Promise<UploadResponse<T>> {
-  return new Promise<UploadResponse<T>>((resolve, reject) => {
+export function putToPresignedUrl(
+  url: string,
+  body: Blob,
+  options: PresignedUploadOptions = {},
+): Promise<PresignedUploadResult> {
+  return new Promise<PresignedUploadResult>((resolve, reject) => {
     const request = new XMLHttpRequest();
     inFlight.add(request);
 
@@ -60,8 +79,14 @@ export function uploadRequest<T>(
       options.signal?.removeEventListener('abort', onSignalAbort);
     };
 
-    request.open('POST', `${getBaseUrl()}${path}`);
-    request.responseType = 'json';
+    request.open(options.method ?? 'PUT', url);
+    // The body is opaque to us; asking XHR to parse it would throw on S3's
+    // occasional empty 200 and buys nothing.
+    request.responseType = 'text';
+
+    for (const [name, value] of Object.entries(options.headers ?? {})) {
+      request.setRequestHeader(name, value);
+    }
 
     request.upload.addEventListener('progress', (event) => {
       // `total` is 0 when the browser cannot determine the body length; the
@@ -73,7 +98,10 @@ export function uploadRequest<T>(
       settle();
 
       if (request.status >= 200 && request.status < 300) {
-        resolve({ data: request.response as T, status: request.status });
+        resolve({
+          status: request.status,
+          etag: request.getResponseHeader('etag') ?? undefined,
+        });
         return;
       }
 
@@ -81,7 +109,7 @@ export function uploadRequest<T>(
         new ApiError(
           request.status,
           `${request.status} ${request.statusText}`,
-          request.response ?? undefined,
+          request.responseText || undefined,
         ),
       );
     });
@@ -106,6 +134,6 @@ export function uploadRequest<T>(
       options.signal.addEventListener('abort', onSignalAbort);
     }
 
-    request.send(formData);
+    request.send(body);
   });
 }

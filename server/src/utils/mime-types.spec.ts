@@ -9,7 +9,6 @@ import {
   getSupportedMediaTypes,
   isAssetFile,
   isProfileFile,
-  isSidecarFile,
   isSupportedMediaType,
 } from './mime-types';
 
@@ -43,14 +42,6 @@ describe('isAssetFile', () => {
   it('rejects sidecars and unknown extensions', () => {
     expect(isAssetFile('photo.xmp')).toBe(false);
     expect(isAssetFile('notes.txt')).toBe(false);
-  });
-});
-
-describe('isSidecarFile', () => {
-  it('only accepts .xmp', () => {
-    expect(isSidecarFile('meta.xmp')).toBe(true);
-    expect(isSidecarFile('META.XMP')).toBe(true);
-    expect(isSidecarFile('meta.xml')).toBe(false);
   });
 });
 

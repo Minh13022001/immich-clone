@@ -20,6 +20,21 @@ export function readEnv(config: ConfigService<Env, true>): Env {
     DB_DATABASE_NAME: config.get('DB_DATABASE_NAME', { infer: true }),
     CORS_ORIGINS: config.get('CORS_ORIGINS', { infer: true }),
     MEDIA_ROOT: config.get('MEDIA_ROOT', { infer: true }),
+    STORAGE_BACKEND: config.get('STORAGE_BACKEND', { infer: true }),
+    PUBLIC_API_URL: config.get('PUBLIC_API_URL', { infer: true }),
+    UPLOAD_TOKEN_SECRET: config.get('UPLOAD_TOKEN_SECRET', { infer: true }),
+    PRESIGN_TTL_SECONDS: config.get('PRESIGN_TTL_SECONDS', { infer: true }),
+    UPLOAD_SESSION_TTL_SECONDS: config.get('UPLOAD_SESSION_TTL_SECONDS', { infer: true }),
+    MULTIPART_THRESHOLD: config.get('MULTIPART_THRESHOLD', { infer: true }),
+    PART_SIZE: config.get('PART_SIZE', { infer: true }),
+    MAX_UPLOAD_SIZE: config.get('MAX_UPLOAD_SIZE', { infer: true }),
+    S3_ENDPOINT: config.get('S3_ENDPOINT', { infer: true }),
+    S3_PUBLIC_ENDPOINT: config.get('S3_PUBLIC_ENDPOINT', { infer: true }),
+    S3_REGION: config.get('S3_REGION', { infer: true }),
+    S3_BUCKET: config.get('S3_BUCKET', { infer: true }),
+    S3_ACCESS_KEY_ID: config.get('S3_ACCESS_KEY_ID', { infer: true }),
+    S3_SECRET_ACCESS_KEY: config.get('S3_SECRET_ACCESS_KEY', { infer: true }),
+    S3_FORCE_PATH_STYLE: config.get('S3_FORCE_PATH_STYLE', { infer: true }),
   };
 }
 

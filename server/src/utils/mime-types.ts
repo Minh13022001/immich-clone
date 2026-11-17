@@ -87,11 +87,6 @@ export function isAssetFile(filename: string): boolean {
   return getMediaTypeInfo(filename) !== undefined;
 }
 
-/** True when the filename is an `.xmp` sidecar. */
-export function isSidecarFile(filename: string): boolean {
-  return getExtension(filename) === 'xmp';
-}
-
 /** True when the filename is a supported image (used for profile avatars). */
 export function isProfileFile(filename: string): boolean {
   return getMediaTypeInfo(filename)?.type === IMAGE;

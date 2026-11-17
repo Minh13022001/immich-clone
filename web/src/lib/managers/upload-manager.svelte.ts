@@ -1,3 +1,4 @@
+import { fetchServerInfo } from '$lib/services/server-info.service';
 import { fetchSupportedMediaTypes } from '$lib/services/upload.service';
 import { uploadStore } from '$lib/stores/upload.store.svelte';
 import {
@@ -6,6 +7,7 @@ import {
   getExtensions,
   openFileUploadDialog,
   setConcurrency as applyConcurrency,
+  setStorageCapabilities,
   setSupportedMediaTypes,
 } from '$lib/utils/file-uploader';
 import { cancelUploadRequests } from '$lib/utils/upload-request';
@@ -19,7 +21,7 @@ import { cancelUploadRequests } from '$lib/utils/upload-request';
  */
 class UploadManager {
   readonly #store = uploadStore;
-  #mediaTypesLoaded = false;
+  #configLoaded = false;
 
   get items() {
     return this.#store.items;
@@ -63,19 +65,30 @@ class UploadManager {
   }
 
   /**
-   * Learns what the server accepts. Failure is not fatal: an unknown list
-   * accepts every file and lets the server reject the unsupported ones.
+   * Learns the server's upload contract once per session: which media types the
+   * picker may offer, and the storage limits that let the client fail a doomed
+   * file before hashing it (brief §4).
+   *
+   * Failure is not fatal: an unknown media-type list accepts every file and an
+   * unknown size ceiling simply skips the fast fail, leaving the server as the
+   * authority.
    */
-  async loadMediaTypes(): Promise<void> {
-    if (this.#mediaTypesLoaded) {
+  async loadServerConfig(): Promise<void> {
+    if (this.#configLoaded) {
       return;
     }
 
     try {
-      setSupportedMediaTypes(await fetchSupportedMediaTypes());
-      this.#mediaTypesLoaded = true;
+      const [mediaTypes, serverInfo] = await Promise.all([
+        fetchSupportedMediaTypes(),
+        fetchServerInfo(),
+      ]);
+
+      setSupportedMediaTypes(mediaTypes);
+      setStorageCapabilities(serverInfo.storage);
+      this.#configLoaded = true;
     } catch (error) {
-      console.warn('[upload] Could not load supported media types', error);
+      console.warn('[upload] Could not load the server upload configuration', error);
     }
   }
 

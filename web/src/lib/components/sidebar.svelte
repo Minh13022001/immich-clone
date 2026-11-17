@@ -21,9 +21,9 @@
     }
   }
 
-  /** Navbar entry point (spec §8.6): learn the extensions, then open the picker. */
+  /** Navbar entry point (spec §8.6): learn the server contract, then open the picker. */
   async function uploadFromPicker(): Promise<void> {
-    await uploadManager.loadMediaTypes();
+    await uploadManager.loadServerConfig();
     await uploadManager.pickAndUpload();
   }
 </script>

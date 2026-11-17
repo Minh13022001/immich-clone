@@ -14,9 +14,12 @@ Web (SvelteKit + Svelte 5 runes)      CLI (packages/cli)
                         │  HTTP  (/api/...)
                         ▼
                  Server (NestJS)
-                        │  SQL   (Kysely query builder)
-                        ▼
-                 Database (PostgreSQL)
+                        │  SQL   (Kysely query builder)     │  presign + verify
+                        ▼                                  ▼
+                 Database (PostgreSQL)            Object store (S3 / MinIO)
+                                                            ▲
+                                        bytes go browser ───┘  directly,
+                                        never through the API
 ```
 
 Both clients speak to the API through the same shared SDK, so there is exactly
@@ -73,7 +76,8 @@ one place that knows how to call the backend.
 │       │   └── +error.svelte
 │       ├── app.html / app.css / app.d.ts
 ├── docker/
-│   ├── docker-compose.dev.yml         web + server + database
+│   ├── docker-compose.dev.yml         web + server + database + MinIO
+│   ├── minio/bootstrap.sh             private bucket, CORS, lifecycle rule
 │   ├── server.Dockerfile
 │   └── web.Dockerfile
 ├── mise.toml                          Toolchain + task definitions
@@ -105,6 +109,19 @@ pnpm dev
 ```
 
 Open <http://localhost:3000>.
+
+Uploads work with no object store by default: `STORAGE_BACKEND=local` keeps the
+byte-moving inside the API and writes under `MEDIA_ROOT`. To route uploads
+**directly** to an S3-compatible store instead (the supported production path),
+start MinIO and flip the switch — the API then only presigns and verifies:
+
+```bash
+docker compose -f docker/docker-compose.dev.yml up -d minio minio-init
+STORAGE_BACKEND=s3 pnpm dev
+```
+
+Details, including the CORS header multipart uploads depend on, are in
+[`plans/asset-upload-s3-migration.md`](./plans/asset-upload-s3-migration.md).
 
 If something else already owns `:2283` (a real Immich instance, for example),
 run the API on another port and point the dev server at it:

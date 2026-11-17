@@ -18,6 +18,16 @@ export enum UploadState {
 
 export type UploadStat = 'success' | 'error' | 'duplicate';
 
+/**
+ * Where a single upload is in the direct-to-storage flow (brief §2).
+ *
+ * `hashing` runs in the browser before the server is contacted; `initiating`
+ * asks the API for a session; `uploading` streams bytes straight to the object
+ * store; `completing` asks the API to verify and finalise. Surfaced so the
+ * panel can explain a long pause instead of looking frozen.
+ */
+export type UploadPhase = 'hashing' | 'initiating' | 'uploading' | 'completing';
+
 export interface UploadItem {
   /** `web-<name>-<lastModified>`; also the de-duplication key. */
   id: string;
@@ -25,6 +35,10 @@ export interface UploadItem {
   albumId?: string;
   /** Id of the asset this upload produced (or matched, for a duplicate). */
   assetId?: string;
+  /** Server-side upload session, so the user can abort it. */
+  uploadId?: string;
+  /** Current step of the direct-upload flow. */
+  phase?: UploadPhase;
   /** Duplicates only: whether the existing asset already sits in the trash. */
   isTrashed?: boolean;
   /** 0–100. */

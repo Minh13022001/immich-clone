@@ -2,42 +2,53 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * The orchestrator (§8.5) with its three collaborators replaced: hashing, the
- * bulk pre-check and the transport. What is left under test is exactly the
- * decision logic the spec pins down — when bytes are sent, what the store is
- * told, and which outcomes stay silent.
+ * bulk pre-check and the direct uploader. What is left under test is exactly
+ * the decision logic the spec pins down — when bytes are sent, what the store
+ * is told, and which outcomes stay silent.
  */
 vi.mock('$lib/utils/hash-file', () => ({ hashFile: vi.fn() }));
 vi.mock('$lib/services/upload.service', () => ({
+  cancelAssetUpload: vi.fn(),
   checkBulkUpload: vi.fn(),
   fetchSupportedMediaTypes: vi.fn(),
+  finalizeAssetUpload: vi.fn(),
+  initiateAssetUpload: vi.fn(),
+  presignUploadParts: vi.fn(),
 }));
-vi.mock('$lib/utils/upload-request', () => ({
-  uploadRequest: vi.fn(),
-  cancelUploadRequests: vi.fn(),
-}));
+vi.mock('$lib/utils/direct-uploader', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('$lib/utils/direct-uploader')>();
 
-import { AssetMediaStatus, AssetRejectReason, AssetUploadAction } from '@immich/sdk';
+  return { ...actual, directUpload: vi.fn() };
+});
+
+import {
+  AssetMediaStatus,
+  AssetRejectReason,
+  AssetUploadAction,
+  type StorageCapabilities,
+} from '@immich/sdk';
 
 import { checkBulkUpload } from '$lib/services/upload.service';
 import { UploadState, uploadStore, type UploadItem } from '$lib/stores/upload.store.svelte';
+import { directUpload } from '$lib/utils/direct-uploader';
 import { hashFile } from '$lib/utils/hash-file';
-import { uploadRequest } from '$lib/utils/upload-request';
 
 import {
   fileUploadHandler,
   fileUploader,
   getExtensions,
   isSupportedFile,
+  setStorageCapabilities,
   setSupportedMediaTypes,
 } from './file-uploader';
 
 const CHECKSUM = 'a'.repeat(40);
 const LAST_MODIFIED = 1_700_000_000_000;
 const DEVICE_ID = `web-photo.jpg-${LAST_MODIFIED}`;
-const CREATED = { data: { id: 'asset-1', status: AssetMediaStatus.CREATED }, status: 201 };
+const CREATED = { status: AssetMediaStatus.CREATED, assetId: 'asset-1', uploadId: 'upload-1' };
 
-function makeFile(name: string, lastModified = LAST_MODIFIED): File {
-  return new File(['bytes'], name, { lastModified });
+function makeFile(name: string, lastModified = LAST_MODIFIED, bytes = 'bytes'): File {
+  return new File([bytes], name, { lastModified });
 }
 
 /** Puts the item in the store the way `fileUploadHandler` would. */
@@ -64,12 +75,13 @@ describe('fileUploader', () => {
     // An empty extension list accepts everything, which is the state before the
     // manager has learned the server's media types.
     setSupportedMediaTypes({ image: [], video: [], sidecar: [] });
+    setStorageCapabilities(undefined);
 
     vi.mocked(hashFile).mockResolvedValue(CHECKSUM);
     vi.mocked(checkBulkUpload).mockResolvedValue({
       results: [{ id: 'photo.jpg', action: AssetUploadAction.ACCEPT }],
     });
-    vi.mocked(uploadRequest).mockResolvedValue(CREATED);
+    vi.mocked(directUpload).mockResolvedValue(CREATED);
   });
 
   afterEach(() => {
@@ -87,6 +99,9 @@ describe('fileUploader', () => {
     expect(vi.mocked(checkBulkUpload)).toHaveBeenCalledWith([
       { id: 'photo.jpg', checksum: CHECKSUM },
     ]);
+    expect(vi.mocked(directUpload)).toHaveBeenCalledWith(
+      expect.objectContaining({ file: item.file, checksum: CHECKSUM }),
+    );
     expect(uploadStore.items[0]).toMatchObject({
       state: UploadState.DONE,
       progress: 100,
@@ -95,30 +110,22 @@ describe('fileUploader', () => {
     expect(uploadStore.success).toBe(1);
   });
 
-  it('posts the fields the server reads: dates, favourite flag and a named part', async () => {
+  it('forwards the locked-asset flag and the published storage limits', async () => {
     const item = seedItem();
+    const capabilities: StorageCapabilities = {
+      backend: 'local',
+      maxUploadSize: 1024,
+      multipartThreshold: 512,
+      partSize: 256,
+      multipart: false,
+    };
 
-    await fileUploader({ assetFile: item.file, deviceAssetId: DEVICE_ID });
-
-    const [path, formData] = vi.mocked(uploadRequest).mock.calls[0]!;
-
-    expect(path).toBe('/assets');
-    expect(formData.get('isFavorite')).toBe('false');
-    expect(formData.get('fileCreatedAt')).toBe(new Date(LAST_MODIFIED).toISOString());
-    expect(formData.get('fileModifiedAt')).toBe(new Date(LAST_MODIFIED).toISOString());
-    expect(formData.get('assetData')).toBeInstanceOf(File);
-    expect((formData.get('assetData') as File).name).toBe('photo.jpg');
-    // Timeline is the default, so no explicit visibility is sent.
-    expect(formData.get('visibility')).toBeNull();
-  });
-
-  it('sends LOCKED visibility only for locked assets', async () => {
-    const item = seedItem();
-
+    setStorageCapabilities(capabilities);
     await fileUploader({ assetFile: item.file, deviceAssetId: DEVICE_ID, isLockedAssets: true });
 
-    const [, formData] = vi.mocked(uploadRequest).mock.calls[0]!;
-    expect(formData.get('visibility')).toBe('locked');
+    expect(vi.mocked(directUpload)).toHaveBeenCalledWith(
+      expect.objectContaining({ isLockedAssets: true, capabilities }),
+    );
   });
 
   it('feeds transport progress into the store', async () => {
@@ -128,9 +135,9 @@ describe('fileUploader', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
 
-    vi.mocked(uploadRequest).mockImplementation(async (_path, _formData, options) => {
+    vi.mocked(directUpload).mockImplementation(async (options) => {
       vi.advanceTimersByTime(1000);
-      options?.onProgress?.({ loaded: 512, total: 1024 });
+      options.onProgress?.({ loaded: 512, total: 1024 });
       midFlight = { ...currentItem() };
 
       return CREATED;
@@ -145,6 +152,23 @@ describe('fileUploader', () => {
       eta: 1,
     });
     expect(uploadStore.items[0]).toMatchObject({ state: UploadState.DONE, progress: 100 });
+  });
+
+  it('publishes the phase and the session id while the upload runs', async () => {
+    const item = seedItem();
+    let midFlight: UploadItem | undefined;
+
+    vi.mocked(directUpload).mockImplementation(async (options) => {
+      options.onPhase?.('uploading');
+      options.onSession?.('upload-1');
+      midFlight = { ...currentItem() };
+
+      return CREATED;
+    });
+
+    await fileUploader({ assetFile: item.file, deviceAssetId: DEVICE_ID });
+
+    expect(midFlight).toMatchObject({ phase: 'uploading', uploadId: 'upload-1' });
   });
 
   it('never sends the bytes when the pre-check already knows the checksum', async () => {
@@ -165,21 +189,44 @@ describe('fileUploader', () => {
     const result = await fileUploader({ assetFile: item.file, deviceAssetId: DEVICE_ID });
 
     expect(result).toBeUndefined();
-    expect(vi.mocked(uploadRequest)).not.toHaveBeenCalled();
+    expect(vi.mocked(directUpload)).not.toHaveBeenCalled();
     expect(uploadStore.items[0]).toMatchObject({
       state: UploadState.DUPLICATED,
       assetId: 'existing-9',
       isTrashed: true,
     });
-    expect(uploadStore.errors).toBe(0);
+    expect([uploadStore.duplicates, uploadStore.errors]).toEqual([1, 0]);
   });
 
-  it('marks a `200 duplicate` from the server as DUPLICATED', async () => {
+  it('fails the item when the pre-check rejects for any other reason', async () => {
     const item = seedItem();
 
-    vi.mocked(uploadRequest).mockResolvedValue({
-      data: { id: 'existing-1', status: AssetMediaStatus.DUPLICATE },
-      status: 200,
+    vi.mocked(checkBulkUpload).mockResolvedValue({
+      results: [
+        {
+          id: 'photo.jpg',
+          action: AssetUploadAction.REJECT,
+          reason: AssetRejectReason.UNSUPPORTED_FORMAT,
+        },
+      ],
+    });
+
+    const result = await fileUploader({ assetFile: item.file, deviceAssetId: DEVICE_ID });
+
+    expect(result).toBeUndefined();
+    expect(vi.mocked(directUpload)).not.toHaveBeenCalled();
+    expect(uploadStore.items[0]).toMatchObject({
+      state: UploadState.ERROR,
+      error: 'Unsupported file format',
+    });
+  });
+
+  it('marks a duplicate reported by the server as DUPLICATED', async () => {
+    const item = seedItem();
+
+    vi.mocked(directUpload).mockResolvedValue({
+      status: AssetMediaStatus.DUPLICATE,
+      assetId: 'existing-1',
     });
 
     const result = await fileUploader({ assetFile: item.file, deviceAssetId: DEVICE_ID });
@@ -192,10 +239,10 @@ describe('fileUploader', () => {
     expect([uploadStore.duplicates, uploadStore.success, uploadStore.errors]).toEqual([1, 0, 0]);
   });
 
-  it('records a rejected request as an ERROR item with the server message', async () => {
+  it('records a rejected upload as an ERROR item with the server message', async () => {
     const item = seedItem();
 
-    vi.mocked(uploadRequest).mockRejectedValue(new Error('Quota has been exceeded!'));
+    vi.mocked(directUpload).mockRejectedValue(new Error('Quota has been exceeded!'));
 
     const result = await fileUploader({ assetFile: item.file, deviceAssetId: DEVICE_ID });
 
@@ -207,32 +254,49 @@ describe('fileUploader', () => {
     expect(uploadStore.errors).toBe(1);
   });
 
-  it('treats an unexpected success status as a failure', async () => {
-    const item = seedItem();
-
-    vi.mocked(uploadRequest).mockResolvedValue({
-      data: { id: 'asset-1', status: AssetMediaStatus.CREATED },
-      status: 500,
-    });
-
-    await fileUploader({ assetFile: item.file, deviceAssetId: DEVICE_ID });
-
-    expect(uploadStore.items[0]).toMatchObject({
-      state: UploadState.ERROR,
-      error: 'Unexpected upload status 500',
-    });
-  });
-
   it('stays silent when the upload was aborted', async () => {
     const item = seedItem();
 
-    vi.mocked(uploadRequest).mockRejectedValue(new DOMException('Upload aborted', 'AbortError'));
+    vi.mocked(directUpload).mockRejectedValue(new DOMException('Upload aborted', 'AbortError'));
 
     const result = await fileUploader({ assetFile: item.file, deviceAssetId: DEVICE_ID });
 
     expect(result).toBeUndefined();
     expect(currentItem().state).toBe(UploadState.STARTED);
     expect([uploadStore.success, uploadStore.errors]).toEqual([0, 0]);
+  });
+
+  it('rejects an empty file before hashing it', async () => {
+    const item = seedItem(makeFile('photo.jpg', LAST_MODIFIED, ''));
+
+    const result = await fileUploader({ assetFile: item.file, deviceAssetId: DEVICE_ID });
+
+    expect(result).toBeUndefined();
+    expect(vi.mocked(hashFile)).not.toHaveBeenCalled();
+    expect(uploadStore.items[0]).toMatchObject({
+      state: UploadState.ERROR,
+      error: 'File is empty',
+    });
+  });
+
+  it('rejects a file above the published maximum before hashing it', async () => {
+    const item = seedItem(makeFile('photo.jpg', LAST_MODIFIED, 'too-large'));
+    setStorageCapabilities({
+      backend: 'local',
+      maxUploadSize: 4,
+      multipartThreshold: 4,
+      partSize: 4,
+      multipart: false,
+    });
+
+    const result = await fileUploader({ assetFile: item.file, deviceAssetId: DEVICE_ID });
+
+    expect(result).toBeUndefined();
+    expect(vi.mocked(hashFile)).not.toHaveBeenCalled();
+    expect(uploadStore.items[0]).toMatchObject({
+      state: UploadState.ERROR,
+      error: 'Upload exceeds the maximum size of 4 bytes',
+    });
   });
 
   it('removes a finished item after a second', async () => {
@@ -255,12 +319,13 @@ describe('fileUploadHandler', () => {
   beforeEach(() => {
     uploadStore.reset();
     setSupportedMediaTypes({ image: [], video: [], sidecar: [] });
+    setStorageCapabilities(undefined);
 
     vi.mocked(hashFile).mockResolvedValue(CHECKSUM);
     vi.mocked(checkBulkUpload).mockResolvedValue({
       results: [{ id: 'photo.jpg', action: AssetUploadAction.ACCEPT }],
     });
-    vi.mocked(uploadRequest).mockResolvedValue(CREATED);
+    vi.mocked(directUpload).mockResolvedValue(CREATED);
   });
 
   afterEach(() => {
@@ -290,7 +355,7 @@ describe('fileUploadHandler', () => {
 
     expect(ids).toEqual(['asset-1']);
     expect(warned).toHaveBeenCalledOnce();
-    expect(vi.mocked(uploadRequest)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(directUpload)).toHaveBeenCalledTimes(1);
     expect(uploadStore.items.map((item) => item.file.name)).toEqual(['photo.jpg']);
   });
 
@@ -305,9 +370,9 @@ describe('fileUploadHandler', () => {
   });
 
   it('leaves duplicates out of the returned ids', async () => {
-    vi.mocked(uploadRequest).mockResolvedValue({
-      data: { id: 'existing-1', status: AssetMediaStatus.DUPLICATE },
-      status: 200,
+    vi.mocked(directUpload).mockResolvedValue({
+      status: AssetMediaStatus.DUPLICATE,
+      assetId: 'existing-1',
     });
 
     const ids = await fileUploadHandler({ files: [makeFile('photo.jpg', 1)] });

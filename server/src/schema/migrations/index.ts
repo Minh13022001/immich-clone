@@ -3,6 +3,9 @@ import type { Kysely } from 'kysely';
 import type { DB } from '../index';
 import * as CreateAssets from './1790000000000-CreateAssets';
 import * as CreateUsers from './1789862400000-CreateUsers';
+import * as CreateAssetUpload from './1800000000000-CreateAssetUpload';
+import * as MakeChecksumUnique from './1800000000001-MakeChecksumUnique';
+import * as AddStorageColumns from './1800000000002-AddStorageColumns';
 
 /**
  * A single migration. `name` is what gets recorded in `schema_migrations` and
@@ -28,5 +31,20 @@ export const migrations: Migration[] = [
     name: '1790000000000-CreateAssets',
     up: CreateAssets.up,
     down: CreateAssets.down,
+  },
+  {
+    name: '1800000000000-CreateAssetUpload',
+    up: CreateAssetUpload.up,
+    down: CreateAssetUpload.down,
+  },
+  {
+    name: '1800000000001-MakeChecksumUnique',
+    up: MakeChecksumUnique.up,
+    down: MakeChecksumUnique.down,
+  },
+  {
+    name: '1800000000002-AddStorageColumns',
+    up: AddStorageColumns.up,
+    down: AddStorageColumns.down,
   },
 ];

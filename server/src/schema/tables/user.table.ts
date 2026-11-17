@@ -17,6 +17,14 @@ export interface UserTable {
   quotaSizeInBytes: number | null;
   /** Running total of bytes uploaded, compared against `quotaSizeInBytes`. */
   quotaUsageInBytes: Generated<number>;
+  /**
+   * Bytes promised to upload sessions that have been initiated but not yet
+   * completed or aborted. Direct-to-storage uploads move the bytes without the
+   * API ever seeing them, so the only way to stop two concurrent uploads from
+   * over-committing an account is to reserve the declared size up front and
+   * release it when the session reaches a terminal state.
+   */
+  quotaReservedInBytes: Generated<number>;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

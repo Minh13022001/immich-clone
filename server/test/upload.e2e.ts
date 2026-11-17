@@ -1,24 +1,4 @@
-/**
- * End-to-end upload check (brief §10, §13).
- *
- * Drives the real HTTP surface against the real Postgres from `server/.env`:
- *
- *   POST /api/assets                     201 created / 200 duplicate / 400s
- *   POST /api/assets/bulk-upload-check   accept / reject / empty batch
- *
- * The server under test is the *compiled* one (`node dist/main.js`) rather than a
- * tsx-loaded entrypoint: Nest resolves constructor dependencies from the
- * `design:paramtypes` metadata, and only `tsc` (through `nest build`) emits it.
- * This script itself runs under tsx.
- *
- * Every run is isolated. A dedicated user is created (the developer's own data is
- * untouched), originals land in a temporary `MEDIA_ROOT`, and the user row is
- * deleted afterwards — which cascades to its assets, files and metadata. If
- * Postgres or the migrations are unavailable the script prints a skip notice and
- * exits 0, so a machine without a dev database reports "skipped", never "failed".
- *
- * Usage: `pnpm --filter server test:e2e`.
- */
+
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -52,7 +32,6 @@ interface HttpResult {
 interface UploadOptions {
   bytes: Buffer;
   filename: string;
-  sidecar?: { bytes: Buffer; filename: string };
   /** When set, the request carries `x-immich-checksum` (the pre-body fast path). */
   checksumHeader?: string;
 }
@@ -347,15 +326,6 @@ function buildUploadForm(options: UploadOptions): FormData {
     }),
   );
 
-  if (options.sidecar) {
-    form.set(
-      'sidecarData',
-      new File([new Uint8Array(options.sidecar.bytes)], options.sidecar.filename, {
-        type: 'application/xml',
-      }),
-    );
-  }
-
   return form;
 }
 
@@ -503,9 +473,6 @@ async function main(): Promise<void> {
       Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
       Buffer.from(`immich-e2e-${runId}`),
     ]);
-    const sidecarBytes = Buffer.from(
-      `<?xml version="1.0"?><x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF/></x:xmpmeta>${runId}`,
-    );
     const otherBytes = Buffer.concat([
       Buffer.from([0xff, 0xd8, 0xff, 0xe1]),
       Buffer.from(`immich-e2e-other-${runId}`),
@@ -517,7 +484,6 @@ async function main(): Promise<void> {
     const created = await upload(baseUrl, ownerId, {
       bytes: assetBytes,
       filename: FILENAME,
-      sidecar: { bytes: sidecarBytes, filename: 'photo.xmp' },
     });
 
     assert.equal(created.status, 201, `unexpected create status: ${JSON.stringify(created.body)}`);
@@ -555,37 +521,6 @@ async function main(): Promise<void> {
     assert.ok(mtimeDelta < 1, `mtime should come from fileModifiedAt (off by ${mtimeDelta}ms)`);
     ok('mtime is set from the client-supplied fileModifiedAt, not wall clock');
 
-    const sidecarResult = await client.query<{ path: string; type: string }>(
-      'select path, type from asset_file where "assetId" = $1',
-      [assetId],
-    );
-    assert.equal(
-      sidecarResult.rows.length,
-      1,
-      'the sidecar part records exactly one asset_file row',
-    );
-    const sidecarPath = sidecarResult.rows[0].path;
-    assert.equal(sidecarResult.rows[0].type, 'sidecar');
-    const sidecarUuid = basename(sidecarPath).replace(/\.[^.]+$/, '');
-    assert.match(sidecarUuid, UUID_PATTERN);
-    assert.equal(basename(sidecarPath).slice(-4), '.xmp', 'a sidecar is always stored as .xmp');
-    assert.equal(
-      dirname(sidecarPath),
-      join(mediaRoot, 'upload', ownerId, sidecarUuid.slice(0, 2), sidecarUuid.slice(2, 4)),
-      'every part is sharded by its own generated uuid (§5.5)',
-    );
-    assert.deepEqual(readFileSync(sidecarPath), sidecarBytes);
-    const sidecarMtimeDelta = Math.abs(
-      statSync(sidecarPath).mtimeMs - new Date(MODIFIED_AT).getTime(),
-    );
-    assert.ok(
-      sidecarMtimeDelta < 1,
-      `the sidecar mtime must come from fileModifiedAt (off by ${sidecarMtimeDelta}ms)`,
-    );
-    ok(
-      'sidecar stored as an `asset_file` row of type `sidecar`, `.xmp` on disk, mtime from fileModifiedAt',
-    );
-
     const exifResult = await client.query<{ fileSizeInByte: string }>(
       'select "fileSizeInByte" from exif where "assetId" = $1',
       [assetId],
@@ -597,12 +532,12 @@ async function main(): Promise<void> {
     assert.equal(
       usageAfterFirst,
       assetBytes.length,
-      'quota usage is billed with the asset size only (the sidecar is free)',
+      'quota usage is billed with the uploaded asset size',
     );
     ok(`quota usage incremented by exactly ${assetBytes.length} bytes`);
 
     const filesAfterFirst = walkFiles(mediaRoot).length;
-    assert.equal(filesAfterFirst, 2, 'one original plus one sidecar');
+    assert.equal(filesAfterFirst, 1, 'one original only');
 
     // --- 2. the same bytes again are a duplicate, not an error -----------------
     const duplicate = await upload(baseUrl, ownerId, { bytes: assetBytes, filename: FILENAME });
@@ -676,7 +611,7 @@ async function main(): Promise<void> {
     ok('a second upload is created and billed independently');
 
     const filesAfterSecond = walkFiles(mediaRoot).length;
-    assert.equal(filesAfterSecond, 3, 'two originals plus one sidecar');
+    assert.equal(filesAfterSecond, 2, 'two originals');
 
     // --- 6. an empty part is rejected and leaves nothing behind ---------------
     const emptyUpload = await upload(baseUrl, ownerId, {

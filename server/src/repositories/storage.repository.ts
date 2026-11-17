@@ -9,6 +9,12 @@ import { rm, stat, utimes } from 'node:fs/promises';
  * Every method is best-effort: a failed `utimes` or a missing file must not fail
  * an upload that has already been persisted.
  */
+/** Inclusive byte window for a partial (`206`) response. */
+export interface ReadStreamRange {
+  start: number;
+  /** Inclusive, mirroring `fs.createReadStream`. */
+  end: number;
+}
 @Injectable()
 export class StorageRepository {
   private readonly logger = new Logger(StorageRepository.name);
@@ -57,8 +63,11 @@ export class StorageRepository {
    * disconnect. A missing file surfaces asynchronously as a stream `error`
    * event, so a caller that owes the client a 404 must check {@link size}
    * first — the asset-serving path does exactly that.
+   *
+   * Passing `range` seeks, which is what makes `<video>` scrubbing work for
+   * legacy files that still live on this filesystem.
    */
-  createReadStream(path: string): ReadStream {
-    return createReadStream(path);
+  createReadStream(path: string, range?: ReadStreamRange): ReadStream {
+    return createReadStream(path, range);
   }
 }

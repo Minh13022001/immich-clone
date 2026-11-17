@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, HttpStatus } from '@nestjs/common';
 import type { Response } from 'express';
 import { Readable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
@@ -26,9 +26,10 @@ function createHarness(result: { id: string; status: AssetMediaStatus }) {
   };
   const controller = new AssetMediaController(assetService as unknown as AssetMediaService);
 
-  const response = { status: vi.fn().mockReturnThis() };
+  const response = { status: vi.fn().mockReturnThis(), setHeader: vi.fn() };
   const request = {
     auth: { user: { id: 'user-1' }, sharedLink: null },
+    headers: {} as Record<string, string | undefined>,
     files: {
       [UploadFieldName.ASSET_DATA]: [
         {
@@ -109,16 +110,14 @@ describe('AssetMediaController', () => {
       response as unknown as Response,
     );
 
-    const [, passedDto, file, sidecar] = assetService.uploadAsset.mock.calls[0] as unknown as [
+    const [, passedDto, file] = assetService.uploadAsset.mock.calls[0] as unknown as [
       unknown,
       CreateAssetDto,
       { uuid: string },
-      unknown,
     ];
 
     expect(passedDto).toBe(dto);
     expect(file.uuid).toBe('abcd1234-0000-4000-8000-000000000000');
-    expect(sidecar).toBeUndefined();
   });
 
   it('delegates the bulk pre-check unchanged', async () => {
@@ -136,7 +135,7 @@ describe('AssetMediaController', () => {
   });
 
   it('streams an asset as an inline file with the resolved type and length', async () => {
-    const { controller, assetService, request } = createHarness({
+    const { controller, assetService, response, request } = createHarness({
       id: 'asset-1',
       status: AssetMediaStatus.CREATED,
     });
@@ -149,9 +148,15 @@ describe('AssetMediaController', () => {
     });
     const id = 'abcd1234-0000-4000-8000-000000000000';
 
-    const file = await controller.getOriginal(request as unknown as AuthenticatedRequest, id);
+    const file = await controller.getOriginal(
+      request as unknown as AuthenticatedRequest,
+      id,
+      response as unknown as Response,
+    );
 
     expect(assetService.getAssetMediaFile).toHaveBeenCalledWith(request.auth, id);
+    expect(response.setHeader).toHaveBeenCalledWith('Accept-Ranges', 'bytes');
+    expect(response.status).not.toHaveBeenCalled();
     expect(file.getStream()).toBe(stream);
     expect(file.getHeaders()).toEqual({
       type: 'image/jpeg',
@@ -161,7 +166,7 @@ describe('AssetMediaController', () => {
   });
 
   it('serves the thumbnail through the same file resolution', async () => {
-    const { controller, assetService, request } = createHarness({
+    const { controller, assetService, response, request } = createHarness({
       id: 'asset-1',
       status: AssetMediaStatus.CREATED,
     });
@@ -173,10 +178,65 @@ describe('AssetMediaController', () => {
     });
     const id = 'abcd1234-0000-4000-8000-000000000000';
 
-    const file = await controller.getThumbnail(request as unknown as AuthenticatedRequest, id);
+    const file = await controller.getThumbnail(
+      request as unknown as AuthenticatedRequest,
+      id,
+      response as unknown as Response,
+    );
 
     expect(assetService.getAssetMediaFile).toHaveBeenCalledWith(request.auth, id);
     expect(file.getHeaders().type).toBe('image/png');
     expect(file.getHeaders().disposition).toBe("inline; filename*=UTF-8''shot.png");
+  });
+
+  it('answers a seekable byte range with 206 and Content-Range', async () => {
+    const { controller, assetService, response, request } = createHarness({
+      id: 'asset-1',
+      status: AssetMediaStatus.CREATED,
+    });
+    request.headers = { range: 'bytes=5-' };
+    assetService.getAssetMediaFile.mockResolvedValue({
+      stream: Readable.from(['bytes']),
+      mimeType: 'video/mp4',
+      fileName: 'clip.mp4',
+      size: 5,
+      contentRange: 'bytes 5-9/10',
+    });
+    const id = 'abcd1234-0000-4000-8000-000000000000';
+
+    await controller.getOriginal(
+      request as unknown as AuthenticatedRequest,
+      id,
+      response as unknown as Response,
+    );
+
+    expect(assetService.getAssetMediaFile).toHaveBeenCalledWith(request.auth, id, { start: 5 });
+    expect(response.setHeader).toHaveBeenCalledWith('Accept-Ranges', 'bytes');
+    expect(response.setHeader).toHaveBeenCalledWith('Content-Range', 'bytes 5-9/10');
+    expect(response.status).toHaveBeenCalledWith(HttpStatus.PARTIAL_CONTENT);
+  });
+
+  it('ignores an unparseable range and serves the whole file', async () => {
+    const { controller, assetService, response, request } = createHarness({
+      id: 'asset-1',
+      status: AssetMediaStatus.CREATED,
+    });
+    request.headers = { range: 'bytes=-500' };
+    assetService.getAssetMediaFile.mockResolvedValue({
+      stream: Readable.from(['bytes']),
+      mimeType: 'image/jpeg',
+      fileName: 'photo.jpg',
+      size: 5,
+    });
+    const id = 'abcd1234-0000-4000-8000-000000000000';
+
+    await controller.getOriginal(
+      request as unknown as AuthenticatedRequest,
+      id,
+      response as unknown as Response,
+    );
+
+    expect(assetService.getAssetMediaFile).toHaveBeenCalledWith(request.auth, id);
+    expect(response.status).not.toHaveBeenCalled();
   });
 });

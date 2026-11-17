@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 
-import { Permission, type AuthenticatedRequest } from '../authentication/context';
+import { Permission, firstHeaderValue, type AuthenticatedRequest } from '../authentication/context';
 import {
   AssetMediaStatus,
   BulkUploadCheckDto,
@@ -33,6 +33,7 @@ import {
 import { Authenticated } from '../middleware/authenticated.decorator';
 import { FileNotEmptyValidator, getUploadedFile } from '../middleware/file-not-empty.validator';
 import { AssetMediaService } from '../services/asset-media.service';
+import { parseByteRange } from '../utils/http-range';
 
 /**
  * HTTP surface for asset uploads (spec §5.1).
@@ -56,29 +57,27 @@ export class AssetMediaController {
 
   @Post() //2
   @Authenticated({ permission: Permission.AssetUpload }) // must be logged in AND have the AssetUpload permission
-
   @UseInterceptors(AssetUploadInterceptor, FileUploadInterceptor) // run left to right: checksum check first, file parsing second
-  @UploadRoute(RouteKey.Asset) // tells FileUploadInterceptor which fields to accept (assetData + sidecarData)
-
-  
-  async uploadAsset( 
+  @UploadRoute(RouteKey.Asset) // tells FileUploadInterceptor which fields to accept (assetData)
+  async uploadAsset(
     @Req() request: AuthenticatedRequest, // the request, with `auth` = who is calling
     @Body() dto: CreateAssetDto,
-    @Res({ passthrough: true }) response: Response, 
-  ): Promise<AssetMediaResponseDto> { 
-    this.fileNotEmpty.validate(request); 
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<AssetMediaResponseDto> {
+    this.fileNotEmpty.validate(request);
 
-    const file = getUploadedFile(request, UploadFieldName.ASSET_DATA); 
-    const sidecarFile = getUploadedFile(request, UploadFieldName.SIDECAR_DATA); 
+    const file = getUploadedFile(request, UploadFieldName.ASSET_DATA);
 
-    if (!file) { // no main file means there is nothing to save
+    if (!file) {
+      // no main file means there is nothing to save
       // `fileNotEmpty` already threw, so this only satisfies the type checker.
       throw new Error('Asset part was not parsed'); // unreachable at runtime; just narrows `file` to non-undefined
     }
 
-    const result = await this.assetService.uploadAsset(request.auth, dto, file, sidecarFile); // real work (save file, DB rows) lives in the service
+    const result = await this.assetService.uploadAsset(request.auth, dto, file); // real work (save file, DB rows) lives in the service
 
-    if (result.status === AssetMediaStatus.DUPLICATE) { // duplicate = nothing new was created
+    if (result.status === AssetMediaStatus.DUPLICATE) {
+      // duplicate = nothing new was created
       response.status(HttpStatus.OK); // so answer 200 instead of Nest's default 201
     }
 
@@ -107,8 +106,9 @@ export class AssetMediaController {
   getThumbnail(
     @Req() request: AuthenticatedRequest,
     @Param('id', ParseUUIDPipe) id: string,
+    @Res({ passthrough: true }) response: Response,
   ): Promise<StreamableFile> {
-    return this.serveAssetFile(request, id, 'inline');
+    return this.serveAssetFile(request, response, id, 'inline');
   }
 
   /**
@@ -121,17 +121,38 @@ export class AssetMediaController {
   getOriginal(
     @Req() request: AuthenticatedRequest,
     @Param('id', ParseUUIDPipe) id: string,
+    @Res({ passthrough: true }) response: Response,
   ): Promise<StreamableFile> {
-    return this.serveAssetFile(request, id, 'inline');
+    return this.serveAssetFile(request, response, id, 'inline');
   }
 
-  /** Shared tail of the two read routes: resolve the file, shape the headers. */
+  /**
+   * Shared tail of the two read routes: resolve the file, shape the headers.
+   *
+   * `Range` is honoured so a `<video>` can seek. The service clamps the window
+   * to the real object and reports the served slice through `contentRange`,
+   * which is what distinguishes a `206` from a full `200`.
+   */
   private async serveAssetFile(
     request: AuthenticatedRequest,
+    response: Response,
     id: string,
     disposition: 'inline' | 'attachment',
   ): Promise<StreamableFile> {
-    const file = await this.assetService.getAssetMediaFile(request.auth, id);
+    const range = parseByteRange(firstHeaderValue(request.headers.range));
+
+    // Only pass the third argument when a range was actually requested: callers
+    // (and the tests) rely on the plain two-argument call for a full response.
+    const file = range
+      ? await this.assetService.getAssetMediaFile(request.auth, id, range)
+      : await this.assetService.getAssetMediaFile(request.auth, id);
+
+    response.setHeader('Accept-Ranges', 'bytes');
+
+    if (file.contentRange) {
+      response.setHeader('Content-Range', file.contentRange);
+      response.status(HttpStatus.PARTIAL_CONTENT);
+    }
 
     return new StreamableFile(file.stream, {
       type: file.mimeType,

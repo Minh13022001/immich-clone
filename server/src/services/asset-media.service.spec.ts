@@ -14,7 +14,6 @@ import type { AuthContext, AuthUser } from '../authentication/context';
 import type { MulterFile } from '../authentication/upload-request';
 import { ASSET_CHECKSUM_CONSTRAINT } from '../constants';
 import {
-  AssetFileType,
   AssetMediaStatus,
   AssetRejectReason,
   AssetType,
@@ -26,15 +25,16 @@ import {
 } from '../dtos/asset-media.dto';
 import { JobName, JobSource } from '../dtos/job.dto';
 import type { AssetRepository } from '../repositories/asset.repository';
-import type { AssetFileRepository } from '../repositories/asset-file.repository';
 import type { EventRepository } from '../repositories/event.repository';
 import type { ExifRepository } from '../repositories/exif.repository';
 import type { JobRepository } from '../repositories/job.repository';
+import type { ObjectStorageRepository } from '../repositories/object-storage.repository';
 import type { StorageRepository } from '../repositories/storage.repository';
 import type { UserRepository } from '../repositories/user.repository';
 import type { AssetRow } from '../schema';
 import { toChecksum } from '../utils/checksum';
 import type { Env } from '../validation';
+import { AssetFinalizerService } from './asset-finalizer.service';
 import { AssetMediaService } from './asset-media.service';
 
 /**
@@ -102,6 +102,8 @@ function createAssetRow(overrides: Partial<AssetRow> = {}): AssetRow {
     checksum: CHECKSUM,
     checksumAlgorithm: 'sha1File',
     originalPath: `/media/upload/${USER_ID}/ab/cd/${UUID}.jpg`,
+    storageBackend: 'local',
+    storageKey: null,
     originalFileName: 'photo.JPG',
     fileCreatedAt: timestamp,
     fileModifiedAt: timestamp,
@@ -130,7 +132,6 @@ function createService(mediaRoot: string) {
     upsertMetadata: vi.fn(),
     getMetadata: vi.fn(),
   };
-  const assetFiles = { create: vi.fn(), getByAssetId: vi.fn(), upsert: vi.fn() };
   const exif = { getByAssetId: vi.fn(), upsert: vi.fn() };
   const users = { incrementQuotaUsage: vi.fn() };
   const jobs = { register: vi.fn(), queue: vi.fn(), drain: vi.fn() };
@@ -140,6 +141,7 @@ function createService(mediaRoot: string) {
     size: vi.fn(),
     createReadStream: vi.fn(),
   };
+  const objects = { head: vi.fn(), getStream: vi.fn() };
   const events = { emit: vi.fn(), forUser: vi.fn() };
 
   const env: Env = {
@@ -152,21 +154,45 @@ function createService(mediaRoot: string) {
     DB_DATABASE_NAME: 'immich',
     CORS_ORIGINS: 'http://localhost:3000',
     MEDIA_ROOT: mediaRoot,
+    STORAGE_BACKEND: 'local',
+    PUBLIC_API_URL: 'http://localhost:2283',
+    UPLOAD_TOKEN_SECRET: 'test-upload-token-secret',
+    PRESIGN_TTL_SECONDS: 900,
+    UPLOAD_SESSION_TTL_SECONDS: 3600,
+    MULTIPART_THRESHOLD: 64 * 1024 * 1024,
+    PART_SIZE: 8 * 1024 * 1024,
+    MAX_UPLOAD_SIZE: 20 * 1024 * 1024 * 1024,
+    S3_ENDPOINT: undefined,
+    S3_PUBLIC_ENDPOINT: undefined,
+    S3_REGION: 'us-east-1',
+    S3_BUCKET: 'immich-clone',
+    S3_ACCESS_KEY_ID: undefined,
+    S3_SECRET_ACCESS_KEY: undefined,
+    S3_FORCE_PATH_STYLE: false,
   };
   const config = { get: (key: keyof Env) => env[key] } as unknown as ConfigService<Env, true>;
+
+  // The row-creating steps live in the finalizer and are shared with the
+  // presigned direct upload, so the service is wired with the real thing rather
+  // than a stub: these tests exercise the legacy path end to end.
+  const finalizer = new AssetFinalizerService(
+    assets as unknown as AssetRepository,
+    exif as unknown as ExifRepository,
+    jobs as unknown as JobRepository,
+    events as unknown as EventRepository,
+  );
 
   const service = new AssetMediaService(
     config,
     assets as unknown as AssetRepository,
-    assetFiles as unknown as AssetFileRepository,
-    exif as unknown as ExifRepository,
     users as unknown as UserRepository,
     jobs as unknown as JobRepository,
     storage as unknown as StorageRepository,
-    events as unknown as EventRepository,
+    objects as unknown as ObjectStorageRepository,
+    finalizer,
   );
 
-  return { service, assets, assetFiles, exif, users, jobs, storage, events };
+  return { service, assets, exif, users, jobs, storage, objects, events };
 }
 
 describe('AssetMediaService', () => {
@@ -221,24 +247,6 @@ describe('AssetMediaService', () => {
       expect(service.canUploadFile(request)).toBe(true);
     });
 
-    it('accepts .xmp for the sidecar part and rejects an image there', () => {
-      const sidecar = {
-        auth: createAuth(),
-        fieldName: UploadFieldName.SIDECAR_DATA,
-        file: createFile({ originalname: 'meta.xmp' }, mediaRoot),
-        body: createDto(),
-      };
-      const wrong = {
-        ...sidecar,
-        file: createFile({ originalname: 'meta.jpg' }, mediaRoot),
-      };
-
-      expect(service.canUploadFile(sidecar)).toBe(true);
-      expect(() => service.canUploadFile(wrong)).toThrowError(
-        new BadRequestException('Unsupported file type meta.jpg'),
-      );
-    });
-
     it('accepts only images for the profile part', () => {
       const avatar = {
         auth: createAuth(),
@@ -289,17 +297,6 @@ describe('AssetMediaService', () => {
       };
 
       expect(service.getUploadFilename(request)).toBe(UUID);
-    });
-
-    it('always stores a sidecar as .xmp, whatever it arrived as', () => {
-      const request = {
-        auth: createAuth(),
-        fieldName: UploadFieldName.SIDECAR_DATA,
-        file: createFile({ originalname: 'metadata.xml' }, mediaRoot),
-        body: createDto(),
-      };
-
-      expect(service.getUploadFilename(request)).toBe(`${UUID}.xmp`);
     });
   });
 
@@ -547,31 +544,6 @@ describe('AssetMediaService', () => {
       ]);
     });
 
-    it('stores the sidecar as a Sidecar file and stamps it with fileModifiedAt', async () => {
-      const sidecarFile = createFile(
-        {
-          fieldname: UploadFieldName.SIDECAR_DATA,
-          originalname: 'meta.xmp',
-          path: join(mediaRoot, 'upload', USER_ID, 'ab', 'cd', `${UUID}.xmp`),
-          checksum: undefined,
-        },
-        mediaRoot,
-      );
-
-      await service.uploadAsset(auth, createDto(), file, sidecarFile);
-
-      expect(deps.assetFiles.upsert).toHaveBeenCalledWith({
-        assetId: ASSET_ID,
-        path: sidecarFile.path,
-        type: AssetFileType.SIDECAR,
-      });
-      expect(deps.storage.setTimes).toHaveBeenCalledWith(
-        sidecarFile.path,
-        expect.any(Date),
-        new Date('2024-01-02T00:00:00.000Z'),
-      );
-    });
-
     it('links a live photo to its counterpart and makes the counterpart visible', async () => {
       deps.assets.getById.mockResolvedValue(createAssetRow({ id: COUNTERPART_ID }));
 
@@ -607,7 +579,7 @@ describe('AssetMediaService', () => {
       expect(deps.assets.create).not.toHaveBeenCalled();
       expect(deps.users.incrementQuotaUsage).not.toHaveBeenCalled();
       expect(deps.jobs.queue).toHaveBeenCalledWith(JobName.FileDelete, {
-        files: [file.path, undefined],
+        files: [file.path],
       });
     });
 
@@ -642,7 +614,7 @@ describe('AssetMediaService', () => {
       // The losing upload's bytes are thrown away, and no row is rolled back
       // because this request never created one.
       expect(deps.jobs.queue).toHaveBeenCalledWith(JobName.FileDelete, {
-        files: [file.path, undefined],
+        files: [file.path],
       });
       expect(deps.assets.remove).not.toHaveBeenCalled();
     });
@@ -669,7 +641,7 @@ describe('AssetMediaService', () => {
 
       expect(deps.assets.remove).toHaveBeenCalledWith(ASSET_ID);
       expect(deps.jobs.queue).toHaveBeenCalledWith(JobName.FileDelete, {
-        files: [file.path, undefined],
+        files: [file.path],
       });
       expect(deps.users.incrementQuotaUsage).not.toHaveBeenCalled();
     });
@@ -737,6 +709,68 @@ describe('AssetMediaService', () => {
       );
 
       expect(deps.storage.createReadStream).not.toHaveBeenCalled();
+    });
+
+    it('reads a direct-upload row through object storage and forwards the range', async () => {
+      const stream = Readable.from(['bytes']);
+      deps.assets.getById.mockResolvedValue(
+        createAssetRow({ storageKey: `${USER_ID}/ab/cd/${UUID}.jpg` }),
+      );
+      deps.objects.head.mockResolvedValue({ size: 10 });
+      deps.objects.getStream.mockResolvedValue({ stream, size: 5 });
+
+      await expect(service.getAssetMediaFile(auth, ASSET_ID, { start: 5 })).resolves.toEqual({
+        stream,
+        mimeType: 'image/jpeg',
+        fileName: 'photo.JPG',
+        size: 5,
+        contentRange: 'bytes 5-9/10',
+      });
+
+      expect(deps.objects.head).toHaveBeenCalledWith(`${USER_ID}/ab/cd/${UUID}.jpg`);
+      expect(deps.objects.getStream).toHaveBeenCalledWith(`${USER_ID}/ab/cd/${UUID}.jpg`, {
+        start: 5,
+      });
+      expect(deps.storage.size).not.toHaveBeenCalled();
+    });
+
+    it('clamps an end past the object and reuses the backend Content-Range', async () => {
+      const stream = Readable.from(['bytes']);
+      deps.assets.getById.mockResolvedValue(createAssetRow({ storageKey: 'key.jpg' }));
+      deps.objects.head.mockResolvedValue({ size: 10 });
+      deps.objects.getStream.mockResolvedValue({
+        stream,
+        size: 5,
+        contentRange: 'bytes 5-9/10',
+      });
+
+      await service.getAssetMediaFile(auth, ASSET_ID, { start: 5, end: 9_999 });
+
+      expect(deps.objects.getStream).toHaveBeenCalledWith('key.jpg', { start: 5, end: 9 });
+    });
+
+    it('serves the whole object when the requested start lies past the end', async () => {
+      const stream = Readable.from(['bytes']);
+      deps.assets.getById.mockResolvedValue(createAssetRow({ storageKey: 'key.jpg' }));
+      deps.objects.head.mockResolvedValue({ size: 10 });
+      deps.objects.getStream.mockResolvedValue({ stream, size: 10 });
+
+      await expect(service.getAssetMediaFile(auth, ASSET_ID, { start: 99 })).resolves.toMatchObject(
+        { size: 10, contentRange: undefined },
+      );
+
+      expect(deps.objects.getStream).toHaveBeenCalledWith('key.jpg', undefined);
+    });
+
+    it('reports a keyed asset whose object is gone as not found', async () => {
+      deps.assets.getById.mockResolvedValue(createAssetRow({ storageKey: 'key.jpg' }));
+      deps.objects.head.mockResolvedValue(null);
+
+      await expect(service.getAssetMediaFile(auth, ASSET_ID)).rejects.toThrowError(
+        NotFoundException,
+      );
+
+      expect(deps.objects.getStream).not.toHaveBeenCalled();
     });
 
     it('refuses to serve a file without an identity', async () => {

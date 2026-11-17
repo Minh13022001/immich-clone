@@ -2,6 +2,7 @@ import type { Insertable, Selectable, Updateable } from 'kysely';
 
 import type { AssetFileTable } from './tables/asset-file.table';
 import type { AssetMetadataTable } from './tables/asset-metadata.table';
+import type { AssetUploadTable } from './tables/asset-upload.table';
 import type { AssetTable } from './tables/asset.table';
 import type { ExifTable } from './tables/exif.table';
 import type { SchemaMigrationsTable } from './tables/schema-migrations.table';
@@ -16,6 +17,7 @@ export interface DB {
   users: UserTable;
   asset: AssetTable;
   asset_file: AssetFileTable;
+  asset_upload: AssetUploadTable;
   exif: ExifTable;
   asset_metadata: AssetMetadataTable;
   schema_migrations: SchemaMigrationsTable;
@@ -34,6 +36,10 @@ export type AssetUpdateRow = Updateable<AssetTable>;
 
 export type AssetFileRow = Selectable<AssetFileTable>;
 export type NewAssetFileRow = Insertable<AssetFileTable>;
+
+export type AssetUploadRow = Selectable<AssetUploadTable>;
+export type NewAssetUploadRow = Insertable<AssetUploadTable>;
+export type AssetUploadUpdateRow = Updateable<AssetUploadTable>;
 
 export type ExifRow = Selectable<ExifTable>;
 export type NewExifRow = Insertable<ExifTable>;

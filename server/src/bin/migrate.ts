@@ -55,25 +55,15 @@ async function getApplied(db: Kysely<DB>): Promise<Set<string>> {
 export async function up(db: Kysely<DB>): Promise<void> {
   await ensureMigrationsTable(db);
   const applied = await getApplied(db);
-  console.log(applied , 6666);
-  //Set(2) { '1789862400000-CreatePhotos', '1789862400000-CreateUsers' } 6666
-  console.log(migrations, 6667);
-  // [
-  //   {
-  //     name: '1789862400000-CreateUsers',
-  //     up: [AsyncFunction: up],
-  //     down: [AsyncFunction: down]
-  //   }
-  // ] 6667
 
   let count = 0;
-  // if there are migration file already run, skip it
+
   for (const migration of migrations) {
+    // Already recorded, so the run is a no-op for this one.
     if (applied.has(migration.name)) {
       continue;
     }
 
-  // if there are migration file not run yet, run it, and record it in schema_migrations table
     logger.log(`Applying ${migration.name}`);
     await migration.up(db);
     await db.insertInto('schema_migrations').values({ name: migration.name }).execute();

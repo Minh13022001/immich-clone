@@ -15,7 +15,6 @@ export function toAssetResponse(row: AssetRow): AssetResponseDto {
     ownerId: row.ownerId,
     type: row.type,
     originalFileName: row.originalFileName,
-    originalPath: row.originalPath,
     fileCreatedAt: row.fileCreatedAt.toISOString(),
     fileModifiedAt: row.fileModifiedAt.toISOString(),
     localDateTime: row.localDateTime.toISOString(),

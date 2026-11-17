@@ -14,17 +14,15 @@ import {
 } from 'class-validator';
 
 /**
- * Multipart field names (spec §3.1). `assetData` is the original binary,
- * `sidecarData` the optional `.xmp` companion, and `file` the profile-image part
- * that reuses the same streaming storage.
+ * Multipart field names (spec §3.1). `assetData` is the original binary, and
+ * `file` the profile-image part that reuses the same streaming storage.
  */
 export enum UploadFieldName {
   ASSET_DATA = 'assetData',
-  SIDECAR_DATA = 'sidecarData',
   PROFILE_DATA = 'file',
 }
 
-/** `asset_file.type` values; only `Sidecar` is produced by an upload today. */
+/** `asset_file.type` values. Uploads currently produce `Original` only. */
 export enum AssetFileType {
   ORIGINAL = 'original',
   SIDECAR = 'sidecar',
@@ -209,7 +207,6 @@ export interface AssetResponseDto {
   ownerId: string;
   type: string;
   originalFileName: string;
-  originalPath: string;
   fileCreatedAt: string;
   fileModifiedAt: string;
   localDateTime: string;

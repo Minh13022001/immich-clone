@@ -11,8 +11,9 @@ import { AssetRepository } from '../repositories/asset.repository';
 import { EventRepository } from '../repositories/event.repository';
 import { ExifRepository } from '../repositories/exif.repository';
 import { JobRepository } from '../repositories/job.repository';
+import { ObjectStorageRepository } from '../repositories/object-storage.repository';
 import { StorageRepository } from '../repositories/storage.repository';
-import type { ExifRow } from '../schema';
+import type { AssetRow, ExifRow } from '../schema';
 import { toAssetResponse } from '../utils/asset-mapper';
 
 /**
@@ -43,6 +44,7 @@ export class JobService implements OnModuleInit {
     private readonly assetRepository: AssetRepository,
     private readonly exifRepository: ExifRepository,
     private readonly storageRepository: StorageRepository,
+    private readonly objectStorage: ObjectStorageRepository,
     private readonly eventRepository: EventRepository,
   ) {}
 
@@ -86,6 +88,11 @@ export class JobService implements OnModuleInit {
       return;
     }
 
+    if (!(await this.hasOriginal(asset))) {
+      this.logger.warn(`AssetExtractMetadata: original for asset ${payload.id} is missing`);
+      return;
+    }
+
     // `fileSizeInByte` — the only EXIF column this clone models — is written on
     // the upload path from the streamed size, so there is nothing to extract.
     if (payload.source === JobSource.UPLOAD || payload.source === JobSource.COPY) {
@@ -99,6 +106,11 @@ export class JobService implements OnModuleInit {
 
     if (!asset) {
       this.logger.warn(`AssetGenerateThumbnails: asset ${payload.id} no longer exists`);
+      return;
+    }
+
+    if (!(await this.hasOriginal(asset))) {
+      this.logger.warn(`AssetGenerateThumbnails: original for asset ${payload.id} is missing`);
       return;
     }
 
@@ -150,8 +162,41 @@ export class JobService implements OnModuleInit {
     this.logger.debug(`${name} is a no-op in this clone`);
   }
 
+  /**
+   * Deletes bytes wherever they live.
+   *
+   * Legacy producers queue absolute filesystem paths; the direct-upload flow
+   * queues object keys, which `ObjectStorageRepository` resolves for either
+   * backend. `locations` keeps the two apart without guessing from the string.
+   */
   private async handleFileDelete(payload: FileDeleteJobPayload): Promise<void> {
-    await this.storageRepository.deleteFiles(payload.files);
+    const files = payload.files.filter((file): file is string => Boolean(file));
+
+    if (files.length === 0) {
+      return;
+    }
+
+    if (payload.locations === 'keys') {
+      await this.objectStorage.deleteObjects(files);
+      return;
+    }
+
+    await this.storageRepository.deleteFiles(files);
+  }
+
+  /**
+   * Confirms the original is still reachable before a stage does any work.
+   *
+   * The row — not the configured backend — decides where the bytes are, exactly
+   * as on the read path: a legacy row points at an absolute path, a
+   * direct-upload row at an object key.
+   */
+  private async hasOriginal(asset: AssetRow): Promise<boolean> {
+    if (asset.storageKey) {
+      return (await this.objectStorage.head(asset.storageKey)) !== null;
+    }
+
+    return (await this.storageRepository.size(asset.originalPath)) !== null;
   }
 
   private toExifPayload(exif: ExifRow): Record<string, unknown> {

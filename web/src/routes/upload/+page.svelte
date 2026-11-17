@@ -17,8 +17,7 @@
   let selected = $state<Asset | null>(null);
 
   onMount(async () => {
-
-    await uploadManager.loadMediaTypes();
+    await uploadManager.loadServerConfig();
     accept = uploadManager.extensions.map((extension) => `.${extension}`).join(',');
   });
 
@@ -56,7 +55,7 @@
     <p class="text-xs text-muted">or paste an image from the clipboard</p>
 
     <label class="btn mt-2">
-      Select files ne`
+      Select files
       <input class="sr-only" type="file" multiple {accept} onchange={onPick} />
     </label>
   </UploadDropZone>

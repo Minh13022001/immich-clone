@@ -200,6 +200,52 @@ States: `PENDING → STARTED → { DONE | ERROR | DUPLICATED }`.
   - **A (rec)** `GET /api/events` resolves identity like D1; server keeps a per-user subscriber set.
   - Note: duplicate events across tabs are expected; the web dedupes by asset id (§8.6).
 
+### D15 — Transport: direct-to-object-store uploads (IMPLEMENTED)
+
+Supersedes the “API receives every byte” assumption behind D13. Full behaviour is
+documented in [`asset-upload-s3-migration.md`](./asset-upload-s3-migration.md).
+
+- **A (chosen)** Presigned PUT, browser → store, with a server-side verification step.
+  `POST /assets/uploads` authorises an exact object (key, size, content type, SHA-1)
+  and reserves quota; `/complete` re-derives size and digest from storage before any
+  asset row exists.
+- **B** Same flow but trusting the client’s checksum for dedupe at `/complete`. Rejected:
+  it would let a forged digest claim somebody else’s bytes, which the brief forbids.
+- **C** Keep bytes flowing through the API and mirror them to S3 afterwards. Rejected:
+  it keeps the API in the data path (the actual problem) and doubles storage writes.
+
+Sub-decisions inside A:
+
+- **D15.1 — One backend interface, two implementations.** `ObjectStorageRepository`
+  exposes `presignPut / head / hashObject / getStream / createMultipartUpload /
+presignPart / listParts / completeMultipartUpload / abortMultipartUpload /
+deleteObjects`. `local` implements the same surface over disk with an HMAC-signed
+  URL pointing back at `/api/uploads/local/:token`; `s3` delegates to the AWS SDK.
+  Consequence: the whole direct flow is exercisable with no MinIO, which is why
+  `pnpm dev` still needs nothing extra.
+- **D15.2 — Two S3 clients.** The signature covers the `Host` header, so URLs are
+  signed with `S3_PUBLIC_ENDPOINT` while calls go to `S3_ENDPOINT`. One client would
+  produce URLs the browser cannot use inside Docker.
+- **D15.3 — Multipart is S3-only.** The local backend never crosses the multipart
+  threshold. Emulating multipart locally would add failure modes (part reassembly,
+  ETag synthesis) with no extra coverage, and `supportsMultipart()` reports it
+  honestly so the client is never handed a contract the backend cannot honour.
+- **D15.4 — `ListParts` is the authority.** The client’s part list only has to agree
+  with storage, so inventing a part cannot advance an upload, and omitting one cannot
+  hide it. A client that posts nothing still completes, because older clients may not
+  track ETags.
+- **D15.5 — Quota is reserved, not charged.** `reserve → commit | release` makes
+  concurrent uploads safe: N parallel uploads cannot each observe the same free space.
+  The reservation is released on abort, expiry, verification failure and duplicate.
+- **D15.6 — Duplicate check runs after verification**, never before, so the answer
+  cannot be influenced by an unverified claim.
+- **D15.7 — Sessions are rows, with a partial unique index** on `(ownerId, checksum)`
+  for non-terminal statuses. Retries and a second tab converge on one session; after
+  a terminal state the same bytes are uploadable again.
+- **D15.8 — The sweep is a job, not a cron.** `UploadCleanupService` registers on the
+  existing `JobRepository` interval seam, and reclaims both expired sessions and rows
+  stuck in `verifying` (a process death inside `/complete`).
+
 ---
 
 ## 3. Proposed file map (subject to decisions)
@@ -268,16 +314,19 @@ Tests:
 | 9   | Web client (XHR/worker/queue/state/UI)       | [`upload-request.ts`](../web/src/lib/utils/upload-request.ts:45) (XHR progress + abort) → [`hash-file.worker.ts`](../web/src/lib/workers/hash-file.worker.ts:51) → [`executor-queue.ts`](../web/src/lib/utils/executor-queue.ts:9) (concurrency 2) → [`upload.store.svelte.ts`](../web/src/lib/stores/upload.store.svelte.ts:43) → [`file-uploader.ts`](../web/src/lib/utils/file-uploader.ts:127); UI [`upload-panel.svelte`](../web/src/lib/components/upload/upload-panel.svelte), [`upload-preview-row.svelte`](../web/src/lib/components/upload/upload-preview-row.svelte), [`upload-drop-zone.svelte`](../web/src/lib/components/upload/upload-drop-zone.svelte), wired from [`upload/+page.svelte`](../web/src/routes/upload/+page.svelte) | [`upload.store.spec.ts`](../web/src/lib/stores/upload.store.spec.ts) (9), [`file-uploader.spec.ts`](../web/src/lib/utils/file-uploader.spec.ts) (14), [`executor-queue.spec.ts`](../web/src/lib/utils/executor-queue.spec.ts) (5)                                                  |
 | 10  | Tests from §10 pass                          | See "Verification" below                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | `pnpm check`, `pnpm lint`, `pnpm format`, server 71 unit, web 28 unit, e2e 18 checks                                                                                                                                                                                               |
 
-### Verification (last run)
+### Verification (last run, after the direct-upload migration)
 
-| Command                                      | Result                                                     |
-| -------------------------------------------- | ---------------------------------------------------------- |
-| `pnpm check`                                 | 4/4 packages clean (`tsc --noEmit` ×3, `svelte-check` 0/0) |
-| `pnpm lint`                                  | 4/4 packages clean (`eslint --max-warnings 0`)             |
-| `pnpm format`                                | clean                                                      |
-| `pnpm --filter server test`                  | 71 passed / 5 files                                        |
-| `pnpm --filter web test`                     | 28 passed / 3 files                                        |
-| `DB_PORT=5432 pnpm --filter server test:e2e` | `upload e2e passed (18 checks)`                            |
+| Command                                                   | Result                                                     |
+| --------------------------------------------------------- | ---------------------------------------------------------- |
+| `pnpm check`                                              | 4/4 packages clean (`tsc --noEmit` ×3, `svelte-check` 0/0) |
+| `pnpm --filter ./server exec vitest run`                  | 89 passed / 6 files                                        |
+| `pnpm --filter ./web exec vitest run`                     | 30 passed / 3 files                                        |
+| `docker compose -f docker-compose.dev.yml config --quiet` | valid                                                      |
+
+`pnpm lint`, `pnpm format` and the e2e script were **not** re-run in this pass. The e2e
+(`test/upload.e2e.ts`) still drives the legacy multipart `POST /assets` path, which was
+deliberately preserved, so it remains valid for that path but does not exercise the
+direct-upload endpoints yet.
 
 The e2e runs the **compiled** server (`node dist/main.js`) because tsx/esbuild emits no Nest
 decorator metadata; it creates its own user, uses a temp `MEDIA_ROOT`, polls for the asynchronous
@@ -305,6 +354,16 @@ exits 0, so it never fails a machine without a database.
 - **Media types come from `GET /server-info/media-types`** (this repo's endpoint) rather than the
   reference's `GET /server-info` blob. The web converts mime types → extensions via a local
   `MIME_TYPE_EXTENSIONS` map, since browsers only filter file pickers by extension.
+- **Upload limits are published, not duplicated (D15).** `GET /server-info` carries a `storage`
+  block (`backend`, `maxUploadSize`, `multipartThreshold`, `partSize`, `multipart`) and the web
+  fail-fast check reads it. The browser and the server therefore produce the same rejection
+  message from the same numbers, and there is no second copy of the policy to drift.
+- **`POST /assets` is now a compatibility path.** It still streams through Multer to
+  `MEDIA_ROOT`, still returns 201/200 per contract, and is still what profile uploads and the
+  existing e2e use. Asset rows it creates carry no `storageKey`, so readers fall back to the
+  filesystem. The direct flow is the supported one.
+- **XMP sidecar upload is out of scope for the direct flow.** The legacy path keeps its sidecar
+  behaviour; `/assets/uploads` does not accept a sidecar part.
 - **No trash route and no timeline page.** Trashed duplicates are still flagged in bulk-check
   (`isTrashed`) because the column exists, but nothing sets it. The upload UI refresh targets a bounded
   "Recently processed" feed instead of a full timeline.

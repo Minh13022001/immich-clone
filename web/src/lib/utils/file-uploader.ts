@@ -1,24 +1,28 @@
 import {
   AssetMediaStatus,
+  AssetRejectReason,
   AssetUploadAction,
-  AssetVisibility,
-  type AssetMediaResponse,
+  type StorageCapabilities,
 } from '@immich/sdk';
 
 import { MIME_TYPE_EXTENSIONS } from '$lib/constants';
 import { checkBulkUpload } from '$lib/services/upload.service';
 import { uploadStore, UploadState } from '$lib/stores/upload.store.svelte';
 import { describeError } from '$lib/utils';
+import { assertUploadable, directUpload } from '$lib/utils/direct-uploader';
 import { ExecutorQueue } from '$lib/utils/executor-queue';
 import { hashFile } from '$lib/utils/hash-file';
-import { uploadRequest } from '$lib/utils/upload-request';
 
 /**
  * The upload orchestrator (spec §8.5).
  *
- * One file's journey — hash, pre-check, POST, bookkeeping — lives in
+ * One file's journey — hash, pre-check, direct upload, bookkeeping — lives in
  * `fileUploader`; `fileUploadHandler` fans a drop/pick over the queue; the two
  * `open*` helpers are the UI entry points.
+ *
+ * The bytes never pass through this API any more: `directUpload` asks for a
+ * session, PUTs straight to the object store and asks the API to verify. This
+ * module only decides *whether* to upload and keeps the store honest.
  */
 
 /** Two at a time keeps a home connection busy without starving other requests. */
@@ -36,6 +40,14 @@ const queue = new ExecutorQueue(DEFAULT_CONCURRENCY);
  * ignore a format we simply have not learned about yet.
  */
 let extensions: string[] = [];
+
+/**
+ * Server-published storage limits, learned from `GET /server-info`.
+ *
+ * Kept here rather than imported from the SDK so the client carries no copy of
+ * the numbers: a deployment that raises `maxUploadSize` needs no web rebuild.
+ */
+let capabilities: StorageCapabilities | undefined;
 
 export interface FileUploadHandlerOptions {
   files: File[];
@@ -74,6 +86,15 @@ export function setSupportedMediaTypes(mediaTypes: {
 
 export function setConcurrency(value: number): void {
   queue.setConcurrency(value);
+}
+
+/** Records the storage limits advertised by `GET /server-info`. */
+export function setStorageCapabilities(value: StorageCapabilities | undefined): void {
+  capabilities = value;
+}
+
+export function getStorageCapabilities(): StorageCapabilities | undefined {
+  return capabilities;
 }
 
 /** True when the file's extension is one the server accepts. */
@@ -139,7 +160,6 @@ export async function fileUploadHandler({
  * Uploads one file, updating the store as it goes. Never throws: a failure
  * becomes an `ERROR` item with a message the panel can show.
  */
-
 export async function fileUploader({
   assetFile,
   deviceAssetId,
@@ -148,55 +168,47 @@ export async function fileUploader({
   uploadStore.markStarted(deviceAssetId);
 
   try {
-    console.log('hello from fileuploader', 999999999999);
-    const formData = new FormData();
-    formData.append('fileCreatedAt', new Date(assetFile.lastModified).toISOString());
-    formData.append('fileModifiedAt', new Date(assetFile.lastModified).toISOString());
-    formData.append('isFavorite', 'false');
-    // Re-wrap so the part always carries a filename, which is what the server
-    // derives the asset type and storage extension from.
-    formData.append('assetData', new File([assetFile], assetFile.name));
-
-    if (isLockedAssets) {
-      formData.append('visibility', AssetVisibility.LOCKED);
-    }
-    console.log('how about this', 999999999999);
+    // Fail fast on files the server is certain to refuse, before spending time
+    // hashing them.
+    assertUploadable(assetFile, capabilities);
 
     // 1. Hash locally, then ask the server whether it already has these bytes.
     //    A hit means the file never leaves the machine (spec §4.2).
+    uploadStore.updateItem(deviceAssetId, { phase: 'hashing' });
     const checksum = await hashFile(assetFile);
-    console.log(checksum, 'checksum', 9999999999999);
-    
-    // const [check] = (await checkBulkUpload([{ id: assetFile.name, checksum }])).results;
-    // console.log(check, 'check', 9999999999);
-    // if (check?.action === AssetUploadAction.REJECT) {
-    //   uploadStore.updateItem(deviceAssetId, { // set state duplicate if the checksum already there
-    //     assetId: check.assetId,
-    //     isTrashed: check.isTrashed ?? false,
-    //     state: UploadState.DUPLICATED,
-    //   });
+    const [check] = (await checkBulkUpload([{ id: assetFile.name, checksum }])).results;
 
-    //   return undefined;
-    // }
-    console.log('how about this 2', 999999999999);
+    if (check?.action === AssetUploadAction.REJECT) {
+      if (check.reason === AssetRejectReason.DUPLICATE) {
+        uploadStore.track('duplicate');
+        uploadStore.updateItem(deviceAssetId, {
+          assetId: check.assetId,
+          isTrashed: check.isTrashed ?? false,
+          state: UploadState.DUPLICATED,
+        });
 
-    // 2. Upload, reporting progress on the way.
-    const { data, status } = await uploadRequest<AssetMediaResponse>('/assets', formData, {
-      onProgress: ({ loaded, total }) => {
-        uploadStore.updateProgress(deviceAssetId, loaded, total);
-      },
-    });
-    console.log('how about this 3', 999999999999);
+        return undefined;
+      }
 
-    if (status !== 200 && status !== 201) {
-      throw new Error(`Unexpected upload status ${status}`);
+      // Any other rejection (unsupported format, quarantined, …) is a hard no.
+      throw new Error('Unsupported file format');
     }
 
-    if (data.status === AssetMediaStatus.DUPLICATE) {
-      console.log(data, data.status, "data.status");
+    // 2. Upload straight to storage, reporting phase and progress on the way.
+    const result = await directUpload({
+      file: assetFile,
+      checksum,
+      isLockedAssets,
+      capabilities,
+      onPhase: (phase) => uploadStore.updateItem(deviceAssetId, { phase }),
+      onSession: (uploadId) => uploadStore.updateItem(deviceAssetId, { uploadId }),
+      onProgress: ({ loaded, total }) => uploadStore.updateProgress(deviceAssetId, loaded, total),
+    });
+
+    if (result.status === AssetMediaStatus.DUPLICATE) {
       uploadStore.track('duplicate');
       uploadStore.updateItem(deviceAssetId, {
-        assetId: data.id,
+        assetId: result.assetId,
         state: UploadState.DUPLICATED,
       });
 
@@ -205,13 +217,13 @@ export async function fileUploader({
 
     uploadStore.track('success');
     uploadStore.updateItem(deviceAssetId, {
-      assetId: data.id,
+      assetId: result.assetId,
       progress: 100,
       state: UploadState.DONE,
     });
     scheduleAutoRemoval(deviceAssetId);
 
-    return data.id;
+    return result.assetId;
   } catch (error) {
     // An aborted upload means the session ended mid-flight (logout), not a
     // failure the user should be told about (spec §8.5).

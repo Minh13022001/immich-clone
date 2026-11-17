@@ -10,11 +10,10 @@ import {
 import { Reflector } from '@nestjs/core';
 import type { Request, Response } from 'express';
 import multer from 'multer';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
 import { unlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
 import type { Observable } from 'rxjs';
 
 import { asUploadRequest, type MulterFile } from '../authentication/upload-request';
@@ -69,9 +68,10 @@ interface UploadStorageEngine {
 @Injectable()
 export class FileUploadInterceptor implements NestInterceptor {
   private readonly logger = new Logger(FileUploadInterceptor.name);
-  private readonly upload: multer.Multer;   // This declares the property and its type. It doesn't assign a value.
+  private readonly upload: multer.Multer; // This declares the property and its type. It doesn't assign a value.
 
-  constructor( // run on register
+  constructor(
+    // run on register
     private readonly reflector: Reflector,
     private readonly assetService: AssetMediaService,
   ) {
@@ -89,13 +89,10 @@ export class FileUploadInterceptor implements NestInterceptor {
   }
 
   async intercept(context: ExecutionContext, next: CallHandler): Promise<Observable<unknown>> {
-    // the only method auto run for this class
-    const key = this.reflector.get(ROUTE_KEY_METADATA, context.getHandler());
-
-    console.log(key, 77);
-    const route = Reflect.getMetadata(ROUTE_KEY_METADATA, context.getHandler()) as
+    const route = this.reflector.get(ROUTE_KEY_METADATA, context.getHandler()) as
       RouteKey | undefined;
 
+    // Routes without the marker (health, listings, …) are not uploads.
     if (!route) {
       return next.handle();
     }
@@ -103,18 +100,16 @@ export class FileUploadInterceptor implements NestInterceptor {
     const request = context.switchToHttp().getRequest<Request>();
     const response = context.switchToHttp().getResponse<Response>();
 
+    // Multer must finish writing the parts before the controller reads them.
     await this.run(this.handlerFor(route), request, response);
-    console.log('wrong turn');
-    return next.handle();          // continue
+
+    return next.handle();
   }
 
   private handlerFor(route: RouteKey): MulterHandler {
     switch (route) {
       case RouteKey.Asset:
-        return this.upload.fields([
-          { name: UploadFieldName.ASSET_DATA, maxCount: 1 },
-          { name: UploadFieldName.SIDECAR_DATA, maxCount: 1 },
-        ]);
+        return this.upload.fields([{ name: UploadFieldName.ASSET_DATA, maxCount: 1 }]);
       case RouteKey.User:
         return this.upload.single(UploadFieldName.PROFILE_DATA);
       default:
@@ -150,10 +145,8 @@ export class FileUploadInterceptor implements NestInterceptor {
   }
 
   private createStorage(): UploadStorageEngine {
-    return {                                          // this object later passed to multer
-      _handleFile: (request, file, callback) => {     // for saving uploaded file to disk
-  
-        
+    return {
+      _handleFile: (request, file, callback) => {
         request.on('error', (error: NodeJS.ErrnoException) => {
           if (error.code === 'ECONNRESET') {
             this.logger.warn(`Upload cancelled: ${file.originalname}`);
@@ -199,10 +192,11 @@ export class FileUploadInterceptor implements NestInterceptor {
 
         file.stream.pipe(writeStream);
       },
-      _removeFile: (_request, file, callback) => { 
-        unlink(file.path).then(              // function for deleting a flie form disk
+      _removeFile: (_request, file, callback) => {
+        // Multer calls this when a later part fails, so the partial file is gone.
+        unlink(file.path).then(
           () => callback(null),
-          (error: Error) => callback(error),   // the callbak is provided by multer
+          (error: Error) => callback(error),
         );
       },
     };

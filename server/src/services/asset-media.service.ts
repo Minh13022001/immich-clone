@@ -6,17 +6,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { ReadStream } from 'node:fs';
 import { extname, join } from 'node:path';
+import type { Readable } from 'node:stream';
 
 import type { AuthContext } from '../authentication/context';
 import type { MulterFile, UploadRequest } from '../authentication/upload-request';
 import {
-  AssetFileType,
   AssetMediaStatus,
   AssetRejectReason,
   AssetUploadAction,
-  AssetVisibility,
   UploadFieldName,
   type AssetMediaResponseDto,
   type AssetResponseDto,
@@ -24,27 +22,21 @@ import {
   type BulkUploadCheckResponseDto,
   type CreateAssetDto,
 } from '../dtos/asset-media.dto';
-import { JobName, JobSource } from '../dtos/job.dto';
-import { AssetFileRepository } from '../repositories/asset-file.repository';
+import { JobName } from '../dtos/job.dto';
 import { AssetRepository } from '../repositories/asset.repository';
-import { EventRepository } from '../repositories/event.repository';
-import { ExifRepository } from '../repositories/exif.repository';
 import { JobRepository } from '../repositories/job.repository';
+import { ObjectStorageRepository } from '../repositories/object-storage.repository';
 import { StorageRepository } from '../repositories/storage.repository';
 import { UserRepository } from '../repositories/user.repository';
 import type { AssetRow } from '../schema';
 import { toAssetResponse } from '../utils/asset-mapper';
 import { decodeChecksum, fromChecksum, isAssetChecksumConstraint } from '../utils/checksum';
 import { readEnv } from '../utils/config';
-import {
-  getAssetType,
-  getMimeType,
-  isAssetFile,
-  isProfileFile,
-  isSidecarFile,
-} from '../utils/mime-types';
+import { clampByteRange, formatContentRange, type ByteRange } from '../utils/http-range';
+import { getMimeType, isAssetFile, isProfileFile } from '../utils/mime-types';
 import { sanitizeFilename, StorageCore, StorageFolder } from '../utils/storage';
 import type { Env } from '../validation';
+import { AssetFinalizerService } from './asset-finalizer.service';
 import { BaseService } from './base.service';
 
 /**
@@ -54,10 +46,13 @@ import { BaseService } from './base.service';
  * it into a `StreamableFile` and owns nothing but the response headers.
  */
 export interface AssetMediaFile {
-  stream: ReadStream;
+  stream: Readable;
   mimeType: string;
   fileName: string;
+  /** Bytes in this response: the slice length for a partial response. */
   size: number;
+  /** Set only for a `206 Partial Content` answer; also drives the status code. */
+  contentRange?: string;
 }
 
 /**
@@ -75,12 +70,11 @@ export class AssetMediaService extends BaseService {
   constructor(
     config: ConfigService<Env, true>,
     private readonly assetRepository: AssetRepository,
-    private readonly assetFileRepository: AssetFileRepository,
-    private readonly exifRepository: ExifRepository,
     private readonly userRepository: UserRepository,
     private readonly jobRepository: JobRepository,
     private readonly storageRepository: StorageRepository,
-    private readonly eventRepository: EventRepository,
+    private readonly objectStorage: ObjectStorageRepository,
+    private readonly finalizer: AssetFinalizerService,
   ) {
     super();
     this.storage = StorageCore.fromEnv(readEnv(config));
@@ -112,11 +106,7 @@ export class AssetMediaService extends BaseService {
     const filename = body.filename || file.originalname;
 
     const supported =
-      fieldName === UploadFieldName.SIDECAR_DATA
-        ? isSidecarFile(filename)
-        : fieldName === UploadFieldName.PROFILE_DATA
-          ? isProfileFile(filename)
-          : isAssetFile(filename);
+      fieldName === UploadFieldName.PROFILE_DATA ? isProfileFile(filename) : isAssetFile(filename);
 
     if (!supported) {
       throw new BadRequestException(`Unsupported file type ${filename}`);
@@ -125,14 +115,11 @@ export class AssetMediaService extends BaseService {
     return true;
   }
 
-  /** `<uuid><ext>`; sidecars are always `.xmp` regardless of the original name. */
-  getUploadFilename({ auth, fieldName, file }: UploadRequest): string {
+  /** `<uuid><ext>`. */
+  getUploadFilename({ auth, file }: UploadRequest): string {
     this.requireUploadAccess(auth);
 
-    const extension =
-      fieldName === UploadFieldName.SIDECAR_DATA
-        ? '.xmp'
-        : extname(file.originalname).toLowerCase();
+    const extension = extname(file.originalname).toLowerCase();
 
     return sanitizeFilename(`${file.uuid}${extension}`);
   }
@@ -155,12 +142,19 @@ export class AssetMediaService extends BaseService {
     this.jobRepository.queue(JobName.FileDelete, { files: [join(folder, filename)] });
   }
 
-  /** The authoritative upload sequence and catch block (spec §6). */
+  /**
+   * The authoritative upload sequence and catch block (spec §6).
+   *
+   * The row-creating half now lives in `AssetFinalizerService`, because the
+   * presigned direct upload ends in exactly the same place. What stays here is
+   * everything that is specific to a multipart request: the digest the
+   * interceptor computed, the quota check against the *streamed* size, and the
+   * cleanup of the bytes multer already wrote.
+   */
   async uploadAsset(
     auth: AuthContext,
     dto: CreateAssetDto,
     file: MulterFile,
-    sidecarFile?: MulterFile,
   ): Promise<AssetMediaResponseDto> {
     this.requireUploadAccess(auth);
 
@@ -173,12 +167,6 @@ export class AssetMediaService extends BaseService {
       throw new InternalServerErrorException('Upload checksum was not computed');
     }
 
-    const originalFileName = dto.filename || file.originalname;
-    const fileCreatedAt = new Date(dto.fileCreatedAt);
-    const fileModifiedAt = new Date(dto.fileModifiedAt);
-
-    let asset: AssetRow | undefined;
-
     try {
       // Deliberately inside the try: the interceptor has already streamed the
       // bytes to disk, so a quota rejection must run the catch block's
@@ -187,64 +175,20 @@ export class AssetMediaService extends BaseService {
       // (spec §9.4).
       this.requireQuota(auth, file.size);
 
-      if (dto.livePhotoVideoId) {
-        await this.onBeforeLink(auth, dto.livePhotoVideoId);
-      }
-
-      asset = await this.assetRepository.create({
-        ownerId: auth.user.id,
-        libraryId: null,
+      const asset = await this.finalizer.finalizeAsset({
+        auth,
+        dto,
         checksum,
-        checksumAlgorithm: 'sha1File',
-        originalPath: file.path,
-        originalFileName,
-        fileCreatedAt,
-        fileModifiedAt,
-        localDateTime: fileCreatedAt,
-        type: getAssetType(originalFileName),
-        isFavorite: dto.isFavorite ?? false,
-        duration: dto.duration ?? null,
-        visibility: dto.visibility ?? AssetVisibility.TIMELINE,
-        livePhotoVideoId: dto.livePhotoVideoId ?? null,
-      });
-
-      if (dto.metadata?.length) {
-        await this.assetRepository.upsertMetadata(
-          asset.id,
-          dto.metadata.map((item) => ({ key: item.key, value: item.value })),
-        );
-      }
-
-      if (sidecarFile) {
-        await this.assetFileRepository.upsert({
-          assetId: asset.id,
-          path: sidecarFile.path,
-          type: AssetFileType.SIDECAR,
-        });
-        await this.storageRepository.setTimes(sidecarFile.path, new Date(), fileModifiedAt);
-      }
-
-      await this.storageRepository.setTimes(file.path, new Date(), fileModifiedAt);
-      await this.exifRepository.upsert({ assetId: asset.id, fileSizeInByte: file.size });
-
-      // Link the motion counterpart back to the still we just created (§9.6).
-      if (dto.livePhotoVideoId) {
-        await this.assetRepository.update(dto.livePhotoVideoId, {
-          livePhotoVideoId: asset.id,
-          visibility: AssetVisibility.TIMELINE,
-        });
-      }
-
-      this.jobRepository.queue(JobName.AssetExtractMetadata, {
-        id: asset.id,
-        source: JobSource.UPLOAD,
-      });
-
-      // Shared links are out of scope (D3): `auth.sharedLink` is always null.
-
-      this.eventRepository.emit('AssetCreate', auth.user.id, {
-        asset: toAssetResponse(asset),
-        file: { path: file.path, size: file.size },
+        size: file.size,
+        originalFileName: dto.filename || file.originalname,
+        // Multer wrote under `MEDIA_ROOT`, so the row records a local object even
+        // when the deployment's default backend is S3. Reads follow the row, not
+        // the configuration, so pre-migration assets stay readable.
+        storageBackend: 'local',
+        storageKey: file.path,
+        // Object stores have no meaningful mtime; the local backend does.
+        stampModifiedTime: (modifiedAt) =>
+          this.storageRepository.setTimes(file.path, new Date(), modifiedAt),
       });
 
       // Only bill quota once every write and the enqueue have succeeded.
@@ -252,7 +196,7 @@ export class AssetMediaService extends BaseService {
 
       return { id: asset.id, status: AssetMediaStatus.CREATED };
     } catch (error) {
-      this.jobRepository.queue(JobName.FileDelete, { files: [file.path, sidecarFile?.path] });
+      this.jobRepository.queue(JobName.FileDelete, { files: [file.path] });
 
       if (isAssetChecksumConstraint(error)) {
         const duplicate = await this.assetRepository.getByChecksum(auth.user.id, checksum);
@@ -264,10 +208,7 @@ export class AssetMediaService extends BaseService {
         return { id: duplicate.id, status: AssetMediaStatus.DUPLICATE };
       }
 
-      if (asset) {
-        await this.assetRepository.remove(asset.id);
-      }
-
+      // Any row this request created has already been removed by the finalizer.
       const message = error instanceof Error ? error.message : String(error);
       const stack = error instanceof Error ? error.stack : undefined;
       this.logger.error(`Upload failed: ${message}`, stack);
@@ -311,11 +252,18 @@ export class AssetMediaService extends BaseService {
    *
    * Ownership is enforced: an unknown id and a foreign id both answer `404`
    * rather than `403`, so the endpoint cannot be used to probe which ids exist.
-   * The on-disk size is read first because it doubles as an existence check
-   * (the `asset` row can outlive its file) and as the response's
-   * `Content-Length`.
+   *
+   * The size is read before the stream because it doubles as an existence check
+   * (the `asset` row can outlive its bytes) and as the response's
+   * `Content-Length`. A `range` is only ever a hint: it is clamped to the object
+   * and dropped when unsatisfiable, so the caller gets a full `200` rather than
+   * a 416.
    */
-  async getAssetMediaFile(auth: AuthContext, assetId: string): Promise<AssetMediaFile> {
+  async getAssetMediaFile(
+    auth: AuthContext,
+    assetId: string,
+    range?: ByteRange,
+  ): Promise<AssetMediaFile> {
     if (!auth?.user) {
       throw new BadRequestException('Authentication required');
     }
@@ -329,17 +277,69 @@ export class AssetMediaService extends BaseService {
       throw new NotFoundException(`Asset ${assetId} was not found`);
     }
 
-    const size = await this.storageRepository.size(asset.originalPath);
+    const resolved = await this.openOriginal(asset, assetId, range);
 
-    if (size === null) {
+    return {
+      stream: resolved.stream,
+      mimeType: getMimeType(asset.originalFileName),
+      fileName: asset.originalFileName,
+      size: resolved.size,
+      contentRange: resolved.contentRange,
+    };
+  }
+
+  /**
+   * Opens wherever the row says the bytes are.
+   *
+   * The row — never the configured backend — decides: a legacy multer row has
+   * no key and an absolute `originalPath`, while a direct-upload row names an
+   * object key that `ObjectStorageRepository` resolves for either backend.
+   */
+  private async openOriginal(
+    asset: AssetRow,
+    assetId: string,
+    range: ByteRange | undefined,
+  ): Promise<{ stream: Readable; size: number; contentRange?: string }> {
+    if (asset.storageKey) {
+      const head = await this.objectStorage.head(asset.storageKey);
+
+      if (!head) {
+        throw new NotFoundException(`Asset ${assetId} has no stored object`);
+      }
+
+      const slice = clampByteRange(range, head.size);
+      const object = await this.objectStorage.getStream(asset.storageKey, slice);
+
+      return {
+        stream: object.stream,
+        size: object.size,
+        contentRange:
+          object.contentRange ??
+          (slice
+            ? formatContentRange(slice.start, slice.end ?? head.size - 1, head.size)
+            : undefined),
+      };
+    }
+
+    const path = asset.originalPath;
+    const total = await this.storageRepository.size(path);
+
+    if (total === null) {
       throw new NotFoundException(`Asset ${assetId} has no file on disk`);
     }
 
+    const slice = clampByteRange(range, total);
+
+    if (!slice) {
+      return { stream: this.storageRepository.createReadStream(path), size: total };
+    }
+
+    const end = slice.end ?? total - 1;
+
     return {
-      stream: this.storageRepository.createReadStream(asset.originalPath),
-      mimeType: getMimeType(asset.originalFileName),
-      fileName: asset.originalFileName,
-      size,
+      stream: this.storageRepository.createReadStream(path, { start: slice.start, end }),
+      size: end - slice.start + 1,
+      contentRange: formatContentRange(slice.start, end, total),
     };
   }
 
@@ -379,15 +379,6 @@ export class AssetMediaService extends BaseService {
 
     if (quotaSizeInBytes !== null && quotaSizeInBytes < quotaUsageInBytes + size) {
       throw new BadRequestException('Quota has been exceeded!');
-    }
-  }
-
-  /** Verifies the live-photo counterpart exists and belongs to the caller. */
-  private async onBeforeLink(auth: AuthContext, livePhotoVideoId: string): Promise<void> {
-    const counterpart = await this.assetRepository.getById(livePhotoVideoId);
-
-    if (!counterpart || counterpart.ownerId !== auth.user.id) {
-      throw new BadRequestException(`Live photo asset ${livePhotoVideoId} was not found`);
     }
   }
 }

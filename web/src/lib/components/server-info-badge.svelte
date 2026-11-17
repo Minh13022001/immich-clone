@@ -12,7 +12,7 @@
 {:else if serverInfoManager.info}
   <span class="text-muted">
     {serverInfoManager.info.name} v{serverInfoManager.info.version} · node {serverInfoManager.info
-      .nodeVersion}
+      .nodeVersion} · storage {serverInfoManager.info.storage.backend}
   </span>
 {:else}
   <span class="text-muted">connecting…</span>

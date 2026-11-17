@@ -1,12 +1,14 @@
-# Development stack: web + server + database.
+# Development stack: web + server + database + object store.
 #
-# Decision: three services, no more.
-# Reason: the reference compose file also runs Redis, a machine-learning
-# container, an init container and optional Prometheus/Grafana. None of those
-# are needed for CRUD, so they are omitted rather than carried along "just in
-# case". Adding Redis later is a five-line change.
-# Trade-off: no shared init container, so each app installs its own deps on
-# first boot. That is slower once, then cached in named volumes.
+# Decision: four services plus a one-shot bucket bootstrap.
+# Reason: uploads are direct-to-S3, so a browser needs an S3-compatible endpoint
+# it can reach on the host. MinIO plays that role; `minio-init` creates the
+# private bucket and its CORS/lifecycle rules before the API starts. The
+# reference compose file additionally runs Redis, a machine-learning container
+# and optional Prometheus/Grafana — none are needed here, and adding Redis later
+# is a five-line change.
+# Trade-off: no shared dependency-init container, so each app installs its own
+# deps on first boot. That is slower once, then cached in named volumes.
 #
 # Usage:
 #   cd docker && docker compose -f docker-compose.dev.yml up
@@ -26,24 +28,65 @@ services:
       POSTGRES_USER: ${DB_USERNAME:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
       POSTGRES_DB: ${DB_DATABASE_NAME:-immich}
-      POSTGRES_INITDB_ARGS: "--data-checksums"
+      POSTGRES_INITDB_ARGS: '--data-checksums'
     ports:
       # Host port is overridable because a Postgres may already own 5432 — a real
       # Immich install, or a database started outside this compose project. When
       # you change it, pair the change with `DB_PORT` on the host-run server.
-      - "${DB_HOST_PORT:-5432}:5432"
+      - '${DB_HOST_PORT:-5432}:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U ${DB_USERNAME:-postgres} -d ${DB_DATABASE_NAME:-immich}",
-        ]
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USERNAME:-postgres} -d ${DB_DATABASE_NAME:-immich}']
       interval: 5s
       timeout: 5s
       retries: 10
     # restart: unless-stopped kill the docker proxy's process. this keep the docker proxy listen even when the container stopped
+
+  minio:
+    container_name: immich_clone_minio
+    image: minio/minio:latest
+    # `--console-address` pins the web console to 9001 so the S3 API can keep the
+    # conventional 9000. Console is a debugging aid, not part of the flow.
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-minioadmin}
+    ports:
+      # The S3 port must be reachable from the *browser*, because the browser is
+      # what PUTs the bytes. Whatever you set here has to match
+      # S3_PUBLIC_ENDPOINT on the server — the signature covers the Host header,
+      # so a URL signed for one host:port is rejected at another.
+      - '${MINIO_HOST_PORT:-9000}:9000'
+      - '${MINIO_CONSOLE_HOST_PORT:-9001}:9001'
+    volumes:
+      - minio_data:/data
+    # No healthcheck on purpose: MinIO's health endpoint goes green before the S3
+    # API accepts signed requests, so a passing check would not mean "usable".
+    # `minio-init` retries real signed calls instead.
+    restart: unless-stopped
+
+  minio-init:
+    container_name: immich_clone_minio_init
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    environment:
+      # Inside the compose network the API uses the service name; the bootstrap
+      # runs here too, so it uses the same internal endpoint.
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minioadmin}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-immich-clone}
+      # Only this origin may PUT/GET. Add the port you actually browse with.
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+    volumes:
+      - ./minio:/bootstrap:ro
+    # Creating the bucket, its CORS rules and its lifecycle rule are all
+    # idempotent, so re-running on every `up` is safe and keeps the store in
+    # sync with this file.
+    entrypoint: ['/bin/sh', '/bootstrap/bootstrap.sh']
+    restart: 'no'
 
   server:
     container_name: immich_clone_server
@@ -63,11 +106,29 @@ services:
       DB_USERNAME: ${DB_USERNAME:-postgres}
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
       DB_DATABASE_NAME: ${DB_DATABASE_NAME:-immich}
-      CORS_ORIGINS: http://localhost:3000
+      CORS_ORIGINS: ${CORS_ORIGIN:-http://localhost:3000}
+      # `local` keeps bytes on the MEDIA_ROOT volume; `s3` sends the browser
+      # straight to MinIO. Both are supported, so flipping this one variable is
+      # the whole cut-over for a dev machine.
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      # Internal endpoint for HeadObject/ListParts/delete/hash and for signing
+      # multipart part URLs on the server side.
+      S3_ENDPOINT: http://minio:9000
+      # Host-reachable endpoint used when signing a single-part PUT, because the
+      # signature is bound to the Host the browser will send.
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-immich-clone}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minioadmin}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minioadmin}
+      # MinIO serves buckets as path segments (`/bucket/key`), never as
+      # subdomains, so virtual-host addressing has to be off.
+      S3_FORCE_PATH_STYLE: 'true'
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:2283}
     ports:
       # Overridable for the same reason as above: a real Immich server often
       # owns 2283 on a developer machine.
-      - "${SERVER_HOST_PORT:-2283}:2283"
+      - '${SERVER_HOST_PORT:-2283}:2283'
     volumes:
       # Bind-mount the repo so edits hot-reload, but keep node_modules inside
       # the container so host and container architectures never clash.
@@ -77,6 +138,10 @@ services:
     depends_on:
       database:
         condition: service_healthy
+      # The bucket must exist before the first upload is signed, and the API
+      # cannot create it with object-scoped credentials.
+      minio-init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   web:
@@ -90,7 +155,7 @@ services:
       # The Vite dev server proxies /api to this target from inside the network.
       VITE_API_PROXY: http://server:2283
     ports:
-      - "${WEB_HOST_PORT:-3000}:3000"
+      - '${WEB_HOST_PORT:-3000}:3000'
     volumes:
       - ..:/usr/src/app
       - web_node_modules:/usr/src/app/web/node_modules
@@ -101,6 +166,9 @@ services:
 
 volumes:
   postgres_data:
+  # Originals live here. Deleting this volume loses every uploaded asset, so
+  # `docker compose down -v` is a destructive act, not a cache clear.
+  minio_data:
   server_node_modules:
   web_node_modules:
   root_node_modules:

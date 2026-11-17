@@ -14,6 +14,8 @@ export enum JobName {
   AssetEncodeVideo = 'AssetEncodeVideo',
   AssetDetectDuplicates = 'AssetDetectDuplicates',
   FileDelete = 'FileDelete',
+  /** Recurring sweep for abandoned direct uploads; carries no payload. */
+  UploadCleanup = 'UploadCleanup',
 }
 
 /** Why a job was enqueued; drives whether the upload pipeline notifies clients. */
@@ -31,7 +33,15 @@ export interface AssetJobPayload {
   notify?: boolean;
 }
 
-/** Payload for `FileDelete`; `undefined` entries are ignored. */
+/**
+ * Payload for `FileDelete`; `undefined` entries are ignored.
+ *
+ * `locations` says how each name must be addressed: `paths` (the default) are
+ * absolute filesystem paths as written by the legacy multer flow, while `keys`
+ * are object keys that `ObjectStorageRepository` resolves for whichever backend
+ * is configured.
+ */
 export interface FileDeleteJobPayload {
   files: (string | undefined)[];
+  locations?: 'paths' | 'keys';
 }
